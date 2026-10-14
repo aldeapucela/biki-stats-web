@@ -1,7 +1,7 @@
 # Plan de la issue #{{issueId}}: {{issueTitle}}
 
-- **Issue central:** {{issueUrl}}
-- **Repositorio de seguimiento:** `aldeapucela/biki-stats-core`
+- **Issue de este repositorio:** {{issueUrl}}
+- **Repositorio de seguimiento:** `aldeapucela/biki-stats-web`
 - **Repositorio de implementación:** {{implementationRepo}}
 - **Estado:** SOLO PLAN / PENDIENTE DE AUTORIZACIÓN
 - **Rama futura:** `{{featOrFix}}/{{issueId}}/{{issueSlug}}` (todavía no creada)
