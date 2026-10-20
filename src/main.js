@@ -37,11 +37,26 @@ const focusStationOnMap = (stationId) => {
 };
 const selectStation = (stationId) => {
   state.selectedStationId = stationId;
+  state.stationPanelExpanded = true;
   render();
   requestAnimationFrame(() => {
     document.querySelector(`[data-station="${CSS.escape(stationId)}"]`)?.scrollIntoView({ behavior: "smooth", block: "nearest" });
     focusStationOnMap(stationId);
   });
+};
+const collapseStationPanel = () => {
+  if (!state.stationPanelExpanded) return;
+  state.stationPanelExpanded = false;
+  const panel = document.querySelector(".station-panel");
+  panel?.classList.remove("expanded");
+  panel?.classList.add("collapsed");
+};
+const toggleStationPanel = () => {
+  state.stationPanelExpanded = !state.stationPanelExpanded;
+  const panel = document.querySelector(".station-panel");
+  panel?.classList.toggle("expanded", state.stationPanelExpanded);
+  panel?.classList.toggle("collapsed", !state.stationPanelExpanded);
+  document.querySelector("[data-panel-toggle]")?.setAttribute("aria-expanded", String(state.stationPanelExpanded));
 };
 
 function shell(content) {
@@ -92,7 +107,7 @@ function filterStations() {
 
 function mapView() {
   return `<section class="page map-page"><div class="page-heading"><div><p class="eyebrow">VALLADOLID · INFORMACIÓN EN TIEMPO DIFERIDO</p><h1>Estaciones BIKI</h1><p class="lede">Consulta bicicletas y anclajes disponibles cerca de ti.</p></div><button class="secondary-button" data-action="locate" ${state.locationStatus === "requesting" ? "disabled" : ""}>⌖ ${locationMessage()}</button></div>
-    <div class="map-layout"><aside class="station-panel" aria-label="Lista de estaciones"><div class="search-wrap"><label for="station-search" class="sr-only">Buscar estación</label><span aria-hidden="true">⌕</span><input id="station-search" type="search" placeholder="Buscar por nombre" value="${esc(state.query)}" /></div><div class="filter-chips" role="group" aria-label="Filtros de ocupación">${[["all", "Todas"], ["electric", "Eléctricas"], ["low", "Poca ocupación"], ["high", "Muy ocupadas"]].map(([key, label]) => `<button class="chip ${state.filter === key ? "active" : ""}" data-filter="${key}">${label}</button>`).join("")}</div><div class="panel-status"><span>${filterStations().length} estaciones</span><span>${state.updatedAt ? `Consulta ${state.updatedAt.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}` : "Cargando…"}</span></div><div id="station-list" class="station-list">${state.loading ? loadingState() : state.error ? errorState(state.error) : filterStations().map((station) => stationCard(station)).join("") || emptyState("No hay estaciones que coincidan", "Prueba con otro nombre o filtro.")}</div></aside><div id="map" class="map-container" aria-label="Mapa de estaciones BIKI"></div></div></section>`;
+    <div class="map-layout"><aside class="station-panel ${state.stationPanelExpanded ? "expanded" : "collapsed"}" aria-label="Lista de estaciones"><button type="button" class="station-panel-handle" data-panel-toggle aria-label="${state.stationPanelExpanded ? "Minimizar" : "Expandir"} listado de estaciones" aria-expanded="${state.stationPanelExpanded}"><span aria-hidden="true"></span></button><div class="search-wrap"><label for="station-search" class="sr-only">Buscar estación</label><span aria-hidden="true">⌕</span><input id="station-search" type="search" placeholder="Buscar por nombre" value="${esc(state.query)}" /></div><div class="filter-chips" role="group" aria-label="Filtros de ocupación">${[["all", "Todas"], ["electric", "Eléctricas"], ["low", "Poca ocupación"], ["high", "Muy ocupadas"]].map(([key, label]) => `<button class="chip ${state.filter === key ? "active" : ""}" data-filter="${key}">${label}</button>`).join("")}</div><div class="panel-status"><span>${filterStations().length} estaciones</span><span>${state.updatedAt ? `Consulta ${state.updatedAt.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}` : "Cargando…"}</span></div><div id="station-list" class="station-list">${state.loading ? loadingState() : state.error ? errorState(state.error) : filterStations().map((station) => stationCard(station)).join("") || emptyState("No hay estaciones que coincidan", "Prueba con otro nombre o filtro.")}</div></aside><div id="map" class="map-container" aria-label="Mapa de estaciones BIKI"></div></div></section>`;
 }
 
 function historyView() {
@@ -203,7 +218,7 @@ function renderMapInstance() {
   if (map) map.remove();
   const center = state.userLocation ? [state.userLocation.latitude, state.userLocation.longitude] : [41.652, -4.724];
   map = L.map(container, { zoomControl: false }).setView(center, state.userLocation ? 14 : 13);
-  L.control.zoom({ position: "bottomright" }).addTo(map);
+  L.control.zoom({ position: "topright" }).addTo(map);
   L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' }).addTo(map);
   if (state.userLocation) L.circleMarker(center, { radius: 9, color: "#73579f", fillColor: "#b9a7d7", fillOpacity: 0.95, weight: 3, className: "user-location-marker" }).addTo(map).bindTooltip("Tu ubicación");
   const visibleStations = filterStations();
@@ -211,9 +226,14 @@ function renderMapInstance() {
     const selected = state.selectedStationId === station.station_id;
     const marker = L.marker([station.location.latitude, station.location.longitude], { icon: L.divIcon({ className: `station-marker ${occupancyTone(station.occupancy_percent)}${selected ? " selected" : ""}`, html: `<span class="marker-values"><span class="marker-value mechanical">M ${formatNumber(station.bikes?.mechanical)}</span><span class="marker-value electric">E ${formatNumber(station.bikes?.electric)}</span></span>`, iconSize: [48, 44], iconAnchor: [24, 22] }) }).addTo(map).bindPopup(stationTooltip(station), { className: "station-popup", closeButton: true, autoClose: true, closeOnClick: true, maxWidth: 260 });
     marker.stationId = station.station_id;
-    marker.on("click", () => selectStation(station.station_id));
+    marker.on("click", (event) => {
+      L.DomEvent.stopPropagation(event);
+      selectStation(station.station_id);
+    });
     return marker;
   });
+  map.on("click", collapseStationPanel);
+  map.on("dragstart zoomstart", collapseStationPanel);
   const LocateControl = L.Control.extend({
     onAdd() {
       const button = L.DomUtil.create("button", "map-locate-button");
@@ -231,12 +251,14 @@ function renderMapInstance() {
 }
 
 function bindEvents() {
+  document.querySelector("[data-panel-toggle]")?.addEventListener("click", toggleStationPanel);
   document.querySelectorAll("[data-action='theme']").forEach((button) => button.addEventListener("click", () => { setTheme(state.theme === "dark" ? "light" : "dark"); render(); }));
   document.querySelectorAll("[data-action='reload']").forEach((button) => button.addEventListener("click", () => loadStations()));
   document.querySelectorAll("[data-action='locate']").forEach((button) => button.addEventListener("click", () => locateUser()));
   document.querySelectorAll("[data-filter]").forEach((button) => button.addEventListener("click", () => { state.filter = button.dataset.filter; render(); }));
   document.querySelector("#station-search")?.addEventListener("input", (event) => {
     state.query = event.target.value;
+    state.stationPanelExpanded = true;
     render();
     requestAnimationFrame(() => {
       const input = document.querySelector("#station-search");
@@ -244,6 +266,12 @@ function bindEvents() {
       input.focus();
       input.setSelectionRange(state.query.length, state.query.length);
     });
+  });
+  document.querySelector("#station-search")?.addEventListener("focus", () => {
+    if (state.stationPanelExpanded) return;
+    state.stationPanelExpanded = true;
+    render();
+    requestAnimationFrame(() => document.querySelector("#station-search")?.focus());
   });
   document.querySelectorAll("[data-favorite]").forEach((button) => button.addEventListener("click", (event) => { event.stopPropagation(); toggleFavorite(button.dataset.favorite); render(); }));
   document.querySelectorAll("[data-station]").forEach((card) => { card.addEventListener("click", () => selectStation(card.dataset.station)); card.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); selectStation(card.dataset.station); } }); });

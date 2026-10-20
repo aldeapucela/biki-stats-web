@@ -32,6 +32,7 @@ export const state = {
   locationRequested: false,
   locationStatus: "idle",
   locationError: null,
+  stationPanelExpanded: false,
 };
 
 export function persistFavorites() { localStorage.setItem(FAVORITES_KEY, JSON.stringify([...state.favorites])); }
