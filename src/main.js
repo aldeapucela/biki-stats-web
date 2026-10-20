@@ -33,15 +33,30 @@ const focusStationOnMap = (stationId) => {
   if (!map || station?.location?.latitude == null || station.location.longitude == null) return;
   const position = [station.location.latitude, station.location.longitude];
   map.setView(position, Math.max(map.getZoom(), 16), { animate: true });
-  markers.find((marker) => marker.stationId === stationId)?.openTooltip();
+  markers.find((marker) => marker.stationId === stationId)?.openPopup();
 };
 const selectStation = (stationId) => {
   state.selectedStationId = stationId;
+  state.stationPanelExpanded = true;
   render();
   requestAnimationFrame(() => {
     document.querySelector(`[data-station="${CSS.escape(stationId)}"]`)?.scrollIntoView({ behavior: "smooth", block: "nearest" });
     focusStationOnMap(stationId);
   });
+};
+const collapseStationPanel = () => {
+  if (!state.stationPanelExpanded) return;
+  state.stationPanelExpanded = false;
+  const panel = document.querySelector(".station-panel");
+  panel?.classList.remove("expanded");
+  panel?.classList.add("collapsed");
+};
+const toggleStationPanel = () => {
+  state.stationPanelExpanded = !state.stationPanelExpanded;
+  const panel = document.querySelector(".station-panel");
+  panel?.classList.toggle("expanded", state.stationPanelExpanded);
+  panel?.classList.toggle("collapsed", !state.stationPanelExpanded);
+  document.querySelector("[data-panel-toggle]")?.setAttribute("aria-expanded", String(state.stationPanelExpanded));
 };
 
 function shell(content) {
@@ -71,6 +86,15 @@ function stationCard(station, compact = false) {
   </article>`;
 }
 
+function stationTooltip(station) {
+  const latitude = station.location?.latitude;
+  const longitude = station.location?.longitude;
+  const directionsUrl = latitude != null && longitude != null
+    ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(`${latitude},${longitude}`)}`
+    : null;
+  return `<div class="station-popup-content"><strong>${esc(station.name)}</strong><span>${station.occupancy_percent == null ? "Sin ocupación" : `${formatNumber(station.occupancy_percent, 0)}% ocupada`}</span><span>${formatNumber(station.bikes?.mechanical)} mecánicas · ${formatNumber(station.bikes?.electric)} eléctricas</span><span>${formatNumber(station.free_docks)} anclajes libres${station.capacity == null ? "" : ` de ${formatNumber(station.capacity)}`}</span>${directionsUrl ? `<a class="map-directions-button" href="${directionsUrl}" target="_blank" rel="noreferrer">Cómo llegar</a>` : ""}</div>`;
+}
+
 function filterStations() {
   const query = state.query.trim().toLocaleLowerCase();
   return state.stations.filter((station) => {
@@ -83,7 +107,7 @@ function filterStations() {
 
 function mapView() {
   return `<section class="page map-page"><div class="page-heading"><div><p class="eyebrow">VALLADOLID · INFORMACIÓN EN TIEMPO DIFERIDO</p><h1>Estaciones BIKI</h1><p class="lede">Consulta bicicletas y anclajes disponibles cerca de ti.</p></div><button class="secondary-button" data-action="locate" ${state.locationStatus === "requesting" ? "disabled" : ""}>⌖ ${locationMessage()}</button></div>
-    <div class="map-layout"><aside class="station-panel" aria-label="Lista de estaciones"><div class="search-wrap"><label for="station-search" class="sr-only">Buscar estación</label><span aria-hidden="true">⌕</span><input id="station-search" type="search" placeholder="Buscar por nombre" value="${esc(state.query)}" /></div><div class="filter-chips" role="group" aria-label="Filtros de ocupación">${[["all", "Todas"], ["electric", "Eléctricas"], ["low", "Poca ocupación"], ["high", "Muy ocupadas"]].map(([key, label]) => `<button class="chip ${state.filter === key ? "active" : ""}" data-filter="${key}">${label}</button>`).join("")}</div><div class="panel-status"><span>${filterStations().length} estaciones</span><span>${state.updatedAt ? `Consulta ${state.updatedAt.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}` : "Cargando…"}</span></div><div id="station-list" class="station-list">${state.loading ? loadingState() : state.error ? errorState(state.error) : filterStations().map((station) => stationCard(station)).join("") || emptyState("No hay estaciones que coincidan", "Prueba con otro nombre o filtro.")}</div></aside><div id="map" class="map-container" aria-label="Mapa de estaciones BIKI"></div></div></section>`;
+    <div class="map-layout"><aside class="station-panel ${state.stationPanelExpanded ? "expanded" : "collapsed"}" aria-label="Lista de estaciones"><button type="button" class="station-panel-handle" data-panel-toggle aria-label="${state.stationPanelExpanded ? "Minimizar" : "Expandir"} listado de estaciones" aria-expanded="${state.stationPanelExpanded}"><span aria-hidden="true"></span></button><div class="search-wrap"><label for="station-search" class="sr-only">Buscar estación</label><span aria-hidden="true">⌕</span><input id="station-search" type="search" placeholder="Buscar por nombre" value="${esc(state.query)}" /></div><div class="filter-chips" role="group" aria-label="Filtros de ocupación">${[["all", "Todas"], ["electric", "Eléctricas"], ["low", "Poca ocupación"], ["high", "Muy ocupadas"]].map(([key, label]) => `<button class="chip ${state.filter === key ? "active" : ""}" data-filter="${key}">${label}</button>`).join("")}</div><div class="panel-status"><span>${filterStations().length} estaciones</span><span>${state.updatedAt ? `Consulta ${state.updatedAt.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}` : "Cargando…"}</span></div><div id="station-list" class="station-list">${state.loading ? loadingState() : state.error ? errorState(state.error) : filterStations().map((station) => stationCard(station)).join("") || emptyState("No hay estaciones que coincidan", "Prueba con otro nombre o filtro.")}</div></aside><div id="map" class="map-container" aria-label="Mapa de estaciones BIKI"></div></div></section>`;
 }
 
 function historyView() {
@@ -93,7 +117,8 @@ function historyView() {
   const historyStations = state.stations.filter((item) => !historyQuery || item.name.toLocaleLowerCase().includes(historyQuery));
   const stationOptions = historyStations.length ? historyStations.map((item) => `<button type="button" class="history-option ${item.station_id === station?.station_id ? "selected" : ""}" role="option" aria-selected="${item.station_id === station?.station_id}" data-history-station="${esc(item.station_id)}">${esc(item.name)}</button>`).join("") : `<div class="history-option-empty">No hay estaciones que coincidan</div>`;
   const expanded = state.historyPickerOpen;
-  return `<section class="page history-page"><div class="page-heading"><div><p class="eyebrow">ANÁLISIS DE DISPONIBILIDAD</p><h1>Histórico</h1><p class="lede">Observa cómo cambia cada estación. Los huecos representan datos que no se capturaron.</p></div></div><div class="history-controls"><div class="history-station-picker"><label for="history-station-search">Estación</label><div class="history-combobox"><div class="history-combobox-input"><input id="history-station-search" role="combobox" aria-controls="history-station-options" aria-expanded="${expanded}" type="search" placeholder="Buscar estación" value="${esc(state.historyQuery)}" autocomplete="off" /><button type="button" class="history-combobox-toggle" data-history-toggle aria-label="${expanded ? "Cerrar" : "Abrir"} selector de estaciones" aria-expanded="${expanded}">${expanded ? "⌃" : "⌄"}</button></div>${expanded ? `<div id="history-station-options" class="history-combobox-options" role="listbox" aria-label="Estaciones">${stationOptions}</div>` : ""}</div></div><div class="period-tabs" role="tablist" aria-label="Periodo histórico">${periods.map(([key, label]) => `<button role="tab" aria-selected="${state.period === key}" class="period-tab ${state.period === key ? "active" : ""}" data-period="${key}">${label}</button>`).join("")}</div></div>${station ? `<div id="history-content">${historyContent(station)}</div>` : emptyState("No hay estaciones", "La API todavía no ha devuelto estaciones.")}</section>`;
+  const inputValue = expanded ? state.historyQuery : station?.name || "";
+  return `<section class="page history-page"><div class="page-heading"><div><p class="eyebrow">ANÁLISIS DE DISPONIBILIDAD</p><h1>Histórico</h1><p class="lede">Observa cómo cambia cada estación. Los huecos representan datos que no se capturaron.</p></div></div><div class="history-controls"><div class="history-station-picker"><label for="history-station-search">Estación</label><div class="history-combobox"><div class="history-combobox-input"><input id="history-station-search" role="combobox" aria-controls="history-station-options" aria-expanded="${expanded}" type="search" placeholder="Buscar estación" value="${esc(inputValue)}" autocomplete="off" /><button type="button" class="history-combobox-toggle" data-history-toggle aria-label="${expanded ? "Cerrar" : "Abrir"} selector de estaciones" aria-expanded="${expanded}">${expanded ? "⌃" : "⌄"}</button></div>${expanded ? `<div id="history-station-options" class="history-combobox-options" role="listbox" aria-label="Estaciones">${stationOptions}</div>` : ""}</div></div><div class="period-tabs" role="tablist" aria-label="Periodo histórico">${periods.map(([key, label]) => `<button role="tab" aria-selected="${state.period === key}" class="period-tab ${state.period === key ? "active" : ""}" data-period="${key}">${label}</button>`).join("")}</div></div>${station ? `<div id="history-content">${historyContent(station)}</div>` : emptyState("No hay estaciones", "La API todavía no ha devuelto estaciones.")}</section>`;
 }
 
 function historyContent(station) {
@@ -102,7 +127,7 @@ function historyContent(station) {
   if (cached.error) return errorState(cached.error);
   const points = cached.history.points || [];
   const summary = cached.summary;
-  return `<div class="history-kpis"><div class="kpi-card"><span>Ocupación media</span><strong>${formatNumber(summary?.occupancy?.average_percent, 1)}%</strong><small>${state.period} · ${summary?.observations || 0} observaciones</small></div><div class="kpi-card"><span>Máxima ocupación</span><strong>${formatNumber(summary?.occupancy?.maximum_percent, 1)}%</strong><small>${formatDate(summary?.occupancy?.maximum_at)}</small></div><div class="kpi-card"><span>Mínima ocupación</span><strong>${formatNumber(summary?.occupancy?.minimum_percent, 1)}%</strong><small>${formatDate(summary?.occupancy?.minimum_at)}</small></div><div class="kpi-card"><span>Bicis medias</span><strong>${formatNumber(summary?.bikes?.total_bikes_average, 1)}</strong><small>mecánicas + eléctricas</small></div></div><div class="chart-card"><div class="card-heading"><div><p class="eyebrow">DISPONIBILIDAD POR PERIODO</p><h2>Ocupación y anclajes</h2></div><span class="legend"><i class="legend-dot mechanical"></i>Mecánicas <i class="legend-dot electric"></i>Eléctricas <i class="legend-dot docks"></i>Libres</span></div>${points.length ? stackedChart(points) : emptyState("Sin observaciones", "No hay datos históricos para este periodo.")}</div><div class="history-lower"><div class="chart-card composition-card"><div class="card-heading"><div><p class="eyebrow">COMPOSICIÓN MEDIA</p><h2>Qué hay en la estación</h2></div></div>${donut(summary?.composition)}<div class="composition-legend"><span><i class="legend-dot mechanical"></i>Mecánicas ${formatNumber(summary?.composition?.mechanical_percent, 0)}%</span><span><i class="legend-dot electric"></i>Eléctricas ${formatNumber(summary?.composition?.electric_percent, 0)}%</span><span><i class="legend-dot docks"></i>Libres ${formatNumber(summary?.composition?.free_docks_percent, 0)}%</span></div></div><div class="chart-card missing-card"><p class="eyebrow">CALIDAD DEL DATO</p><h2>Sin inventar huecos</h2><p>Se han recibido <strong>${formatNumber(summary?.observations)}</strong> observaciones. ${summary?.missing_buckets ? `Faltan ${summary.missing_buckets} periodos; se muestran como ausencia de datos.` : "No se han detectado periodos vacíos."}</p><p class="freshness">Última observación: ${formatDate(summary?.last_observed_at)}</p></div></div></div>`;
+  return `<div class="history-kpis"><div class="kpi-card"><span>Ocupación media</span><strong>${formatNumber(summary?.occupancy?.average_percent, 1)}%</strong><small>${state.period} · ${summary?.observations || 0} observaciones</small></div><div class="kpi-card"><span>Máxima ocupación</span><strong>${formatNumber(summary?.occupancy?.maximum_percent, 1)}%</strong><small>${formatDate(summary?.occupancy?.maximum_at)}</small></div><div class="kpi-card"><span>Mínima ocupación</span><strong>${formatNumber(summary?.occupancy?.minimum_percent, 1)}%</strong><small>${formatDate(summary?.occupancy?.minimum_at)}</small></div><div class="kpi-card"><span>Bicis medias</span><div class="average-bikes"><div><i class="legend-dot mechanical"></i><strong>${formatNumber(summary?.bikes?.mechanical_average, 1)}</strong><small>Mecánicas</small></div><div><i class="legend-dot electric"></i><strong>${formatNumber(summary?.bikes?.electric_average, 1)}</strong><small>Eléctricas</small></div></div></div></div><div class="chart-card"><div class="card-heading"><div><p class="eyebrow">DISPONIBILIDAD POR PERIODO</p><h2>Ocupación y anclajes</h2></div><span class="legend"><i class="legend-dot mechanical"></i>Mecánicas <i class="legend-dot electric"></i>Eléctricas <i class="legend-dot docks"></i>Libres</span></div>${points.length ? stackedChart(points) : emptyState("Sin observaciones", "No hay datos históricos para este periodo.")}</div><div class="history-lower"><div class="chart-card composition-card"><div class="card-heading"><div><p class="eyebrow">COMPOSICIÓN MEDIA</p><h2>Qué hay en la estación</h2></div></div>${donut(summary?.composition)}<div class="composition-legend"><span><i class="legend-dot mechanical"></i>Mecánicas ${formatNumber(summary?.composition?.mechanical_percent, 0)}%</span><span><i class="legend-dot electric"></i>Eléctricas ${formatNumber(summary?.composition?.electric_percent, 0)}%</span><span><i class="legend-dot docks"></i>Libres ${formatNumber(summary?.composition?.free_docks_percent, 0)}%</span></div></div><div class="chart-card missing-card"><p class="eyebrow">CALIDAD DEL DATO</p><h2>Sin inventar huecos</h2><p>Se han recibido <strong>${formatNumber(summary?.observations)}</strong> observaciones. ${summary?.missing_buckets ? `Faltan ${summary.missing_buckets} periodos; se muestran como ausencia de datos.` : "No se han detectado periodos vacíos."}</p><p class="freshness">Última observación: ${formatDate(summary?.last_observed_at)}</p></div></div></div>`;
 }
 
 function stackedChart(points) {
@@ -112,7 +137,7 @@ function stackedChart(points) {
 }
 
 function donut(composition = {}) {
-  const values = [composition.mechanical_percent || 0, composition.electric_percent || 0, composition.free_docks_percent || 0]; const colors = ["#f47c42", "#8d6be8", "#94a3b8"]; let offset = 0; const circles = values.map((value, index) => { const circle = `<circle class="donut-segment" stroke="${colors[index]}" stroke-dasharray="${value} ${100 - value}" stroke-dashoffset="${-offset}"/>`; offset += value; return circle; }).join(""); return `<div class="donut-wrap"><svg viewBox="0 0 42 42" class="donut" role="img" aria-label="Composición media de la estación"><circle class="donut-track"/><g transform="rotate(-90 21 21)">${circles}</g><text x="21" y="22" text-anchor="middle">${formatNumber(values[0] + values[1], 0)}%</text></svg></div>`;
+  const values = [composition.mechanical_percent || 0, composition.electric_percent || 0, composition.free_docks_percent || 0]; const colors = ["#f47c42", "#8d6be8", "#94a3b8"]; let offset = 0; const circles = values.map((value, index) => { const circle = `<circle class="donut-segment" cx="21" cy="21" r="15" pathLength="100" stroke="${colors[index]}" stroke-dasharray="${value} ${100 - value}" stroke-dashoffset="${-offset}"/>`; offset += value; return circle; }).join(""); return `<div class="donut-wrap"><svg viewBox="0 0 42 42" class="donut" role="img" aria-label="Composición media de la estación"><circle class="donut-track" cx="21" cy="21" r="15" pathLength="100"/><g transform="rotate(-90 21 21)">${circles}</g><text x="21" y="22" text-anchor="middle">${formatNumber(values[0] + values[1], 0)}%</text></svg></div>`;
 }
 
 function savedView() {
@@ -193,17 +218,22 @@ function renderMapInstance() {
   if (map) map.remove();
   const center = state.userLocation ? [state.userLocation.latitude, state.userLocation.longitude] : [41.652, -4.724];
   map = L.map(container, { zoomControl: false }).setView(center, state.userLocation ? 14 : 13);
-  L.control.zoom({ position: "bottomright" }).addTo(map);
+  L.control.zoom({ position: "topright" }).addTo(map);
   L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' }).addTo(map);
   if (state.userLocation) L.circleMarker(center, { radius: 9, color: "#73579f", fillColor: "#b9a7d7", fillOpacity: 0.95, weight: 3, className: "user-location-marker" }).addTo(map).bindTooltip("Tu ubicación");
   const visibleStations = filterStations();
   markers = visibleStations.filter((station) => station.location?.latitude != null).map((station) => {
     const selected = state.selectedStationId === station.station_id;
-    const marker = L.marker([station.location.latitude, station.location.longitude], { icon: L.divIcon({ className: `station-marker ${occupancyTone(station.occupancy_percent)}${selected ? " selected" : ""}`, html: `<span>${station.occupancy_percent == null ? "?" : Math.round(station.occupancy_percent)}</span>`, iconSize: [44, 44], iconAnchor: [22, 22] }) }).addTo(map).bindTooltip(station.name);
+    const marker = L.marker([station.location.latitude, station.location.longitude], { icon: L.divIcon({ className: `station-marker ${occupancyTone(station.occupancy_percent)}${selected ? " selected" : ""}`, html: `<span class="marker-values"><span class="marker-value mechanical">M ${formatNumber(station.bikes?.mechanical)}</span><span class="marker-value electric">E ${formatNumber(station.bikes?.electric)}</span></span>`, iconSize: [48, 44], iconAnchor: [24, 22] }) }).addTo(map).bindPopup(stationTooltip(station), { className: "station-popup", closeButton: true, autoClose: true, closeOnClick: true, maxWidth: 260 });
     marker.stationId = station.station_id;
-    marker.on("click", () => selectStation(station.station_id));
+    marker.on("click", (event) => {
+      L.DomEvent.stopPropagation(event);
+      selectStation(station.station_id);
+    });
     return marker;
   });
+  map.on("click", collapseStationPanel);
+  map.on("dragstart zoomstart", collapseStationPanel);
   const LocateControl = L.Control.extend({
     onAdd() {
       const button = L.DomUtil.create("button", "map-locate-button");
@@ -221,12 +251,14 @@ function renderMapInstance() {
 }
 
 function bindEvents() {
+  document.querySelector("[data-panel-toggle]")?.addEventListener("click", toggleStationPanel);
   document.querySelectorAll("[data-action='theme']").forEach((button) => button.addEventListener("click", () => { setTheme(state.theme === "dark" ? "light" : "dark"); render(); }));
   document.querySelectorAll("[data-action='reload']").forEach((button) => button.addEventListener("click", () => loadStations()));
   document.querySelectorAll("[data-action='locate']").forEach((button) => button.addEventListener("click", () => locateUser()));
   document.querySelectorAll("[data-filter]").forEach((button) => button.addEventListener("click", () => { state.filter = button.dataset.filter; render(); }));
   document.querySelector("#station-search")?.addEventListener("input", (event) => {
     state.query = event.target.value;
+    state.stationPanelExpanded = true;
     render();
     requestAnimationFrame(() => {
       const input = document.querySelector("#station-search");
@@ -234,6 +266,12 @@ function bindEvents() {
       input.focus();
       input.setSelectionRange(state.query.length, state.query.length);
     });
+  });
+  document.querySelector("#station-search")?.addEventListener("focus", () => {
+    if (state.stationPanelExpanded) return;
+    state.stationPanelExpanded = true;
+    render();
+    requestAnimationFrame(() => document.querySelector("#station-search")?.focus());
   });
   document.querySelectorAll("[data-favorite]").forEach((button) => button.addEventListener("click", (event) => { event.stopPropagation(); toggleFavorite(button.dataset.favorite); render(); }));
   document.querySelectorAll("[data-station]").forEach((card) => { card.addEventListener("click", () => selectStation(card.dataset.station)); card.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); selectStation(card.dataset.station); } }); });
@@ -255,6 +293,7 @@ function bindEvents() {
   });
   document.querySelector("#history-station-search")?.addEventListener("focus", () => {
     if (state.historyPickerOpen) return;
+    state.historyQuery = "";
     state.historyPickerOpen = true;
     render();
     requestAnimationFrame(() => document.querySelector("#history-station-search")?.focus());
