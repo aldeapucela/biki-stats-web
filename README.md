@@ -17,6 +17,14 @@ VITE_API_BASE_URL=http://localhost:8000 VITE_USE_FIXTURES=false npm run dev
 
 En producción, la URL base es `https://api.aldeapucela.org/biki` y las rutas se resuelven bajo `/api/v1`.
 
+## Analítica y privacidad
+
+Matomo se carga únicamente en producción desde `https://stats.aldeapucela.org/` con el `siteId=32`. La aplicación muestra un aviso de consentimiento antes de iniciar el tracker y respeta las señales DNT/GPC del navegador. Local, tests, previews y preproducción no envían analítica.
+
+La configuración se controla con `VITE_ANALYTICS_ENABLED`, `VITE_MATOMO_URL` y `VITE_MATOMO_SITE_ID`. Los eventos solo usan identificadores de estación estables o valores cerrados; no se envían términos de búsqueda, coordenadas, direcciones ni datos personales. Si Matomo no carga, la aplicación continúa funcionando.
+
+La taxonomía y la comprobación de pageviews/eventos deben revisarse en el panel de Matomo de Movilidad. La retención, anonimización y configuración de cookies son las vigentes en el sitio 32.
+
 ## Pruebas y build
 
 ```bash
