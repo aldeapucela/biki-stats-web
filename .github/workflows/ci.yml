@@ -34,12 +34,9 @@ jobs:
           VITE_API_BASE_URL: https://api.aldeapucela.org/biki
           VITE_USE_FIXTURES: "false"
 
-  # Los smoke tests e2e ya fallan en main (navigation.spec.js), por lo que no bloquean
-  # la PR. Cuando se arreglen, quitar continue-on-error para convertirlos en requisito.
   e2e:
-    name: E2E (informativo)
+    name: E2E
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - name: Checkout
         uses: actions/checkout@v4
