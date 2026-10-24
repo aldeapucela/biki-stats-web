@@ -161,7 +161,7 @@ function getCurrentPosition() {
 async function loadStations(useLocation = false) {
   state.loading = true; state.error = null; render();
   try {
-    const response = await api.listStations({ limit: 100 });
+    const response = await api.listAllStations();
     state.nearbyMode = useLocation;
     state.stations = response.data || [];
     state.updatedAt = new Date(); state.geoDenied = false;
