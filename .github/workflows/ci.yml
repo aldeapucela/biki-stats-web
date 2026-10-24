@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+    branches-ignore: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validar
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Unit tests
+        run: npm test
+      - name: Build
+        run: npm run build
+        env:
+          VITE_API_BASE_URL: https://api.aldeapucela.org/biki
+          VITE_USE_FIXTURES: "false"
+      - name: Install Chrome for Playwright
+        run: npx playwright install --with-deps chrome
+      - name: E2E smoke tests
+        run: npm run test:e2e
