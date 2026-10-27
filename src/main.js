@@ -3,6 +3,7 @@ import L from "leaflet";
 import "./styles.css";
 import "./history-overrides.css";
 import { api, ApiError } from "./api.js";
+import { analytics } from "./analytics.js";
 import { navigate, setTheme, state, toggleFavorite } from "./state.js";
 
 let map;
@@ -35,9 +36,12 @@ const focusStationOnMap = (stationId) => {
   map.setView(position, Math.max(map.getZoom(), 16), { animate: true });
   markers.find((marker) => marker.stationId === stationId)?.openPopup();
 };
-const selectStation = (stationId) => {
+const selectStation = (stationId, source = "station_card") => {
   state.selectedStationId = stationId;
   state.stationPanelExpanded = true;
+  if (state.route === "saved") analytics.trackEvent("saved", "open_station", stationId);
+  else if (source === "marker") analytics.trackEvent("map", "select_marker", stationId);
+  else analytics.trackEvent("map", "select_station_card", stationId);
   render();
   requestAnimationFrame(() => {
     document.querySelector(`[data-station="${CSS.escape(stationId)}"]`)?.scrollIntoView({ behavior: "smooth", block: "nearest" });
@@ -53,6 +57,7 @@ const collapseStationPanel = () => {
 };
 const toggleStationPanel = () => {
   state.stationPanelExpanded = !state.stationPanelExpanded;
+  analytics.trackEvent("map", state.stationPanelExpanded ? "expand_results" : "collapse_results", "bottom_sheet");
   const panel = document.querySelector(".station-panel");
   panel?.classList.toggle("expanded", state.stationPanelExpanded);
   panel?.classList.toggle("collapsed", !state.stationPanelExpanded);
@@ -70,7 +75,8 @@ function shell(content) {
     </header>
     <main>${content}</main>
     <nav class="bottom-nav" aria-label="Navegación principal">${links.map(([route, label, icon]) => `<a class="nav-link ${state.route === route ? "active" : ""}" href="${routeHref(route)}" data-route="${route}" aria-current="${state.route === route ? "page" : "false"}"><span aria-hidden="true">${icon}</span>${label}</a>`).join("")}</nav>
-    <footer class="site-footer"><span>Licencia contenido <a href="https://creativecommons.org/licenses/by-sa/4.0/deed.es" target="_blank" rel="noreferrer">CC BY-SA 4.0</a></span><span>·</span><a href="https://github.com/aldeapucela/biki-stats-web" target="_blank" rel="noreferrer">Código GitHub</a><span>·</span><a href="https://aldeapucela.org/" target="_blank" rel="noreferrer">Proyecto creado por vecinos voluntarios de Aldea Pucela</a></footer>
+    <footer class="site-footer"><span>Licencia contenido <a href="https://creativecommons.org/licenses/by-sa/4.0/deed.es" target="_blank" rel="noreferrer" data-analytics-link="license">CC BY-SA 4.0</a></span><span>·</span><a href="https://github.com/aldeapucela/biki-stats-web" target="_blank" rel="noreferrer" data-analytics-link="github">Código GitHub</a><span>·</span><a href="https://aldeapucela.org/" target="_blank" rel="noreferrer" data-analytics-link="aldea_pucela">Proyecto creado por vecinos voluntarios de Aldea Pucela</a></footer>
+    ${analytics.shouldShowConsentBanner() ? `<aside class="analytics-consent" role="dialog" aria-labelledby="analytics-consent-title"><div><strong id="analytics-consent-title">Analítica de uso</strong><p>Usamos Matomo para mejorar Movilidad. No enviamos búsquedas, coordenadas ni datos personales.</p></div><div class="analytics-consent-actions"><button type="button" class="secondary-button" data-analytics-consent="deny">Rechazar</button><button type="button" class="primary-button" data-analytics-consent="grant">Aceptar</button></div></aside>` : ""}
   </div>`;
 }
 
@@ -146,7 +152,7 @@ function savedView() {
 }
 
 function moreView() {
-  return `<section class="page narrow-page"><div class="page-heading"><div><p class="eyebrow">PROYECTO ABIERTO</p><h1>Más</h1><p class="lede">Información para entender los datos y colaborar con Movilidad.</p></div></div><div class="info-grid"><article class="info-card"><span class="info-icon">⌁</span><h2>Datos transparentes</h2><p>La información procede de la API pública de Movilidad y se captura aproximadamente cada cinco minutos. Mostramos siempre cuándo se observó cada dato y si puede estar obsoleto.</p></article><article class="info-card"><span class="info-icon">♧</span><h2>Proyecto vecinal</h2><p>Movilidad es un proyecto abierto de Aldea Pucela para informar sobre las estaciones BIKI de Valladolid, sin acciones de alquiler ni reserva.</p></article><article class="info-card"><span class="info-icon">⌘</span><h2>Colabora</h2><p><a href="https://github.com/aldeapucela/biki-stats-web" target="_blank" rel="noreferrer">Código del frontend</a> · <a href="https://github.com/aldeapucela/biki-stats-core" target="_blank" rel="noreferrer">API y datos</a> · <a href="https://aldeapucela.org/" target="_blank" rel="noreferrer">Aldea Pucela</a></p></article></div><div class="info-card settings-card"><h2>Preferencias</h2><div class="preference-row"><span>Tema de la interfaz</span><button class="secondary-button" data-action="theme">${state.theme === "dark" ? "Usar tema claro" : "Usar tema oscuro"}</button></div><p class="small-note">Código AGPL-3.0-only. El contenido original autorizado se publica bajo CC BY-SA 4.0. Los datos de terceros conservan sus propias condiciones.</p></div></section>`;
+  return `<section class="page narrow-page"><div class="page-heading"><div><p class="eyebrow">PROYECTO ABIERTO</p><h1>Más</h1><p class="lede">Información para entender los datos y colaborar con Movilidad.</p></div></div><div class="info-grid"><article class="info-card"><span class="info-icon">⌁</span><h2>Datos transparentes</h2><p>La información procede de la API pública de Movilidad y se captura aproximadamente cada cinco minutos. Mostramos siempre cuándo se observó cada dato y si puede estar obsoleto.</p></article><article class="info-card"><span class="info-icon">♧</span><h2>Proyecto vecinal</h2><p>Movilidad es un proyecto abierto de Aldea Pucela para informar sobre las estaciones BIKI de Valladolid, sin acciones de alquiler ni reserva.</p></article><article class="info-card"><span class="info-icon">⌘</span><h2>Colabora</h2><p><a href="https://github.com/aldeapucela/biki-stats-web" target="_blank" rel="noreferrer" data-analytics-link="github">Código del frontend</a> · <a href="https://github.com/aldeapucela/biki-stats-core" target="_blank" rel="noreferrer" data-analytics-link="api_github">API y datos</a> · <a href="https://aldeapucela.org/" target="_blank" rel="noreferrer" data-analytics-link="aldea_pucela">Aldea Pucela</a></p></article></div><div class="info-card settings-card"><h2>Preferencias</h2><div class="preference-row"><span>Tema de la interfaz</span><button class="secondary-button" data-action="theme">${state.theme === "dark" ? "Usar tema claro" : "Usar tema oscuro"}</button></div><p class="small-note">Código AGPL-3.0-only. El contenido original autorizado se publica bajo CC BY-SA 4.0. Los datos de terceros conservan sus propias condiciones.</p></div></section>`;
 }
 
 const loadingState = (message = "Cargando estaciones…") => `<div class="state-card"><span class="spinner"></span><p>${message}</p></div>`;
@@ -168,13 +174,15 @@ async function loadStations(useLocation = false) {
   } catch (error) { state.error = error instanceof ApiError ? error : new ApiError("No se pudo conectar con la API", "SERVICE_UNAVAILABLE", 503); } finally { state.loading = false; render(); }
 }
 
-async function locateUser() {
+async function locateUser(manual = true) {
+  if (manual) analytics.trackEvent("map", "center_on_user", "manual");
   state.locationRequested = true;
   state.locationStatus = "requesting";
   state.locationError = null;
   state.error = null;
   render();
   if (!navigator.geolocation) {
+    analytics.trackEvent("map", "location_permission", "unavailable");
     state.locationStatus = "denied";
     state.locationError = "Este navegador no permite obtener la ubicación.";
     state.geoDenied = true;
@@ -186,6 +194,7 @@ async function locateUser() {
     const { coords } = await getCurrentPosition();
     state.userLocation = { latitude: coords.latitude, longitude: coords.longitude };
     state.locationStatus = "available";
+    analytics.trackEvent("map", "location_permission", "granted");
     state.geoDenied = false;
     state.nearbyMode = true;
     render();
@@ -193,6 +202,7 @@ async function locateUser() {
     state.stations = (response.data || []).sort((a, b) => (a.distance_m ?? Number.MAX_SAFE_INTEGER) - (b.distance_m ?? Number.MAX_SAFE_INTEGER));
     state.updatedAt = new Date();
   } catch (error) {
+    analytics.trackEvent("map", "location_permission", error?.code === 1 ? "denied" : "unavailable");
     state.locationStatus = "denied";
     state.locationError = error?.code === 1 ? "Permiso de ubicación denegado." : "No se pudo obtener tu ubicación.";
     state.geoDenied = true;
@@ -242,7 +252,7 @@ function renderMapInstance() {
       button.setAttribute("aria-label", "Centrar en mi ubicación");
       button.innerHTML = "⌾";
       L.DomEvent.disableClickPropagation(button);
-      L.DomEvent.on(button, "click", () => locateUser());
+      L.DomEvent.on(button, "click", () => locateUser(true));
       return button;
     },
   });
@@ -252,10 +262,16 @@ function renderMapInstance() {
 
 function bindEvents() {
   document.querySelector("[data-panel-toggle]")?.addEventListener("click", toggleStationPanel);
-  document.querySelectorAll("[data-action='theme']").forEach((button) => button.addEventListener("click", () => { setTheme(state.theme === "dark" ? "light" : "dark"); render(); }));
+  document.querySelectorAll("[data-action='theme']").forEach((button) => button.addEventListener("click", () => { const theme = state.theme === "dark" ? "light" : "dark"; setTheme(theme); analytics.trackEvent("ui", "change_theme", theme); render(); }));
   document.querySelectorAll("[data-action='reload']").forEach((button) => button.addEventListener("click", () => loadStations()));
   document.querySelectorAll("[data-action='locate']").forEach((button) => button.addEventListener("click", () => locateUser()));
-  document.querySelectorAll("[data-filter]").forEach((button) => button.addEventListener("click", () => { state.filter = button.dataset.filter; render(); }));
+  document.querySelectorAll("[data-filter]").forEach((button) => button.addEventListener("click", () => {
+    if (state.filter === button.dataset.filter) return;
+    state.filter = button.dataset.filter;
+    const filterId = { all: "all", electric: "electric_available", low: "low_occupancy", high: "high_occupancy" }[state.filter];
+    analytics.trackEvent("map", "apply_filter", filterId);
+    render();
+  }));
   document.querySelector("#station-search")?.addEventListener("input", (event) => {
     state.query = event.target.value;
     state.stationPanelExpanded = true;
@@ -267,14 +283,30 @@ function bindEvents() {
       input.setSelectionRange(state.query.length, state.query.length);
     });
   });
+  document.querySelector("#station-search")?.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    const resultCount = filterStations().length;
+    analytics.trackEvent("search", "submit", resultCount ? "with_results" : "without_results", resultCount);
+  });
   document.querySelector("#station-search")?.addEventListener("focus", () => {
     if (state.stationPanelExpanded) return;
     state.stationPanelExpanded = true;
     render();
     requestAnimationFrame(() => document.querySelector("#station-search")?.focus());
   });
-  document.querySelectorAll("[data-favorite]").forEach((button) => button.addEventListener("click", (event) => { event.stopPropagation(); toggleFavorite(button.dataset.favorite); render(); }));
-  document.querySelectorAll("[data-station]").forEach((card) => { card.addEventListener("click", () => selectStation(card.dataset.station)); card.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); selectStation(card.dataset.station); } }); });
+  document.querySelectorAll("[data-favorite]").forEach((button) => button.addEventListener("click", (event) => {
+    event.stopPropagation();
+    const stationId = button.dataset.favorite;
+    const saved = state.favorites.has(stationId);
+    toggleFavorite(stationId);
+    analytics.trackEvent("station", saved ? "remove_save" : "save", stationId);
+    render();
+  }));
+  document.querySelectorAll("[data-station]").forEach((card) => {
+    const source = state.route === "saved" ? "saved" : "station_card";
+    card.addEventListener("click", () => selectStation(card.dataset.station, source));
+    card.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); selectStation(card.dataset.station, source); } });
+  });
   document.querySelector("#history-station-search")?.addEventListener("input", (event) => {
     state.historyQuery = event.target.value;
     state.historyPickerOpen = true;
@@ -298,14 +330,16 @@ function bindEvents() {
     render();
     requestAnimationFrame(() => document.querySelector("#history-station-search")?.focus());
   });
-  document.querySelectorAll("[data-history-station]").forEach((button) => button.addEventListener("click", () => { state.selectedStationId = button.dataset.historyStation; state.historyQuery = ""; state.historyPickerOpen = false; historyCache = new Map(); render(); }));
+  document.querySelectorAll("[data-history-station]").forEach((button) => button.addEventListener("click", () => { state.selectedStationId = button.dataset.historyStation; analytics.trackEvent("history", "select_station", button.dataset.historyStation); state.historyQuery = ""; state.historyPickerOpen = false; historyCache = new Map(); render(); }));
   document.querySelector("#history-station-search")?.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
       state.historyPickerOpen = false;
       render();
     }
   });
-  document.querySelectorAll("[data-period]").forEach((button) => button.addEventListener("click", () => { state.period = button.dataset.period; render(); }));
+  document.querySelectorAll("[data-period]").forEach((button) => button.addEventListener("click", () => { if (state.period === button.dataset.period) return; state.period = button.dataset.period; analytics.trackEvent("history", "select_period", state.period); render(); }));
+  document.querySelectorAll("[data-analytics-link]").forEach((link) => link.addEventListener("click", () => analytics.trackEvent("external", "open_link", link.dataset.analyticsLink)));
+  document.querySelectorAll("[data-analytics-consent]").forEach((button) => button.addEventListener("click", () => { analytics.setConsent(button.dataset.analyticsConsent === "grant" ? "granted" : "denied"); render(); }));
   document.querySelectorAll("[data-route]").forEach((link) => link.addEventListener("click", (event) => {
     if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     event.preventDefault();
@@ -316,6 +350,7 @@ function bindEvents() {
 function render() {
   const content = state.route === "history" ? historyView() : state.route === "saved" ? savedView() : state.route === "more" ? moreView() : mapView();
   document.querySelector("#app").innerHTML = shell(content); bindEvents();
+  analytics.trackPageView(state.route);
   if (state.route === "map") renderMapInstance();
   if (state.route === "history" && state.stations.length) loadHistory();
   clearInterval(refreshTimer); refreshTimer = setInterval(() => { if (document.visibilityState === "visible" && state.route !== "more") state.nearbyMode ? locateUser() : loadStations(); }, 60_000);
@@ -323,5 +358,5 @@ function render() {
 
 render();
 loadStations().then(() => {
-  if (!state.locationRequested && !api.useFixtures) locateUser();
+  if (!state.locationRequested && !api.useFixtures) locateUser(false);
 });
