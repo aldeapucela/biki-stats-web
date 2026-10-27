@@ -68,6 +68,8 @@ for (const mode of ["500", "red"]) {
     await page.goto("/");
     await expect(page.locator("[data-action=locate]")).toContainText("Ubicación activa");
     expect(api.calls.nearby).toBeGreaterThan(0);
+    // `toContainText` no exige visibilidad: en móvil el panel arranca colapsado y el aviso no debe quedar oculto.
+    await expect(page.locator(".panel-notice")).toBeVisible();
     await expect(page.locator(".panel-notice")).toContainText("No se pudo ordenar por cercanía");
     await expect(page.locator(".station-card")).toHaveCount(fixtureStations.length);
     await expect(page.getByRole("heading", { name: "No se pudieron cargar los datos" })).toHaveCount(0);
