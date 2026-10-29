@@ -30,6 +30,11 @@ const occupancyTone = (value) => value == null ? "unknown" : value >= 75 ? "high
 const locationMessage = () => state.locationStatus === "requesting" ? "Solicitando ubicación…" : state.locationStatus === "available" ? "Ubicación activa" : state.locationStatus === "denied" ? "Ubicación no disponible" : "Cerca de mí";
 const currentStation = () => state.stations.find((station) => station.station_id === state.selectedStationId) || state.stations[0];
 const stationById = (stationId) => state.stations.find((station) => station.station_id === stationId);
+// Un error de la API solo sustituye a la lista si no hay estaciones que mostrar; con datos cargados
+// se conserva la lista y se avisa aparte, sin bloquearla.
+const stationsUnavailable = () => Boolean(state.error) && !state.stations.length;
+const panelNotice = () => (state.error && state.stations.length ? "No se pudieron actualizar los datos. Se muestran los últimos recibidos." : state.nearbyError);
+const apiError = (error) => (error instanceof ApiError ? error : new ApiError("No se pudo conectar con la API", "SERVICE_UNAVAILABLE", 503));
 const focusStationOnMap = (stationId) => {
   const station = stationById(stationId);
   if (!map || station?.location?.latitude == null || station.location.longitude == null) return;
@@ -112,9 +117,14 @@ function filterStations() {
   });
 }
 
+function mapLayout() {
+  return `<div class="map-layout"><aside class="station-panel ${state.stationPanelExpanded ? "expanded" : "collapsed"}" aria-label="Lista de estaciones"><button type="button" class="station-panel-handle" data-panel-toggle aria-label="${state.stationPanelExpanded ? "Minimizar" : "Expandir"} listado de estaciones" aria-expanded="${state.stationPanelExpanded}"><span aria-hidden="true"></span></button><div class="search-wrap"><label for="station-search" class="sr-only">Buscar estación</label><span aria-hidden="true">⌕</span><input id="station-search" type="search" placeholder="Buscar por nombre" value="${esc(state.query)}" /></div><div class="filter-chips" role="group" aria-label="Filtros de ocupación">${[["all", "Todas"], ["electric", "Eléctricas"], ["low", "Poca ocupación"], ["high", "Muy ocupadas"]].map(([key, label]) => `<button class="chip ${state.filter === key ? "active" : ""}" data-filter="${key}">${label}</button>`).join("")}</div><div class="panel-status"><span>${filterStations().length} estaciones</span><span>${state.updatedAt ? `Consulta ${state.updatedAt.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}` : state.loading ? "Cargando…" : "Sin datos"}</span></div><div id="station-list" class="station-list">${state.loading ? loadingState() : filterStations().map((station) => stationCard(station)).join("") || emptyState("No hay estaciones que coincidan", "Prueba con otro nombre o filtro.")}</div></aside><div id="map" class="map-container" aria-label="Mapa de estaciones BIKI"></div></div>`;
+}
+
 function mapView() {
   return `<section class="page map-page"><div class="page-heading"><div><p class="eyebrow">VALLADOLID · INFORMACIÓN EN TIEMPO DIFERIDO</p><h1>Estaciones BIKI</h1><p class="lede">Consulta bicicletas y anclajes disponibles cerca de ti.</p></div><button class="secondary-button" data-action="locate" ${state.locationStatus === "requesting" ? "disabled" : ""}>⌖ ${locationMessage()}</button></div>
-    <div class="map-layout"><aside class="station-panel ${state.stationPanelExpanded ? "expanded" : "collapsed"}" aria-label="Lista de estaciones"><button type="button" class="station-panel-handle" data-panel-toggle aria-label="${state.stationPanelExpanded ? "Minimizar" : "Expandir"} listado de estaciones" aria-expanded="${state.stationPanelExpanded}"><span aria-hidden="true"></span></button><div class="search-wrap"><label for="station-search" class="sr-only">Buscar estación</label><span aria-hidden="true">⌕</span><input id="station-search" type="search" placeholder="Buscar por nombre" value="${esc(state.query)}" /></div><div class="filter-chips" role="group" aria-label="Filtros de ocupación">${[["all", "Todas"], ["electric", "Eléctricas"], ["low", "Poca ocupación"], ["high", "Muy ocupadas"]].map(([key, label]) => `<button class="chip ${state.filter === key ? "active" : ""}" data-filter="${key}">${label}</button>`).join("")}</div><div class="panel-status"><span>${filterStations().length} estaciones</span><span>${state.updatedAt ? `Consulta ${state.updatedAt.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}` : "Cargando…"}</span></div><div id="station-list" class="station-list">${state.loading ? loadingState() : state.error ? errorState(state.error) : filterStations().map((station) => stationCard(station)).join("") || emptyState("No hay estaciones que coincidan", "Prueba con otro nombre o filtro.")}</div></aside><div id="map" class="map-container" aria-label="Mapa de estaciones BIKI"></div></div></section>`;
+    ${panelNotice() ? `<p class="panel-notice" role="status">${esc(panelNotice())}</p>` : ""}
+    ${stationsUnavailable() ? `<div class="map-error">${errorState(state.error)}</div>` : mapLayout()}</section>`;
 }
 
 function historyView() {
@@ -183,15 +193,20 @@ async function loadStations(useLocation = false) {
     state.nearbyMode = useLocation;
     state.stations = response.data || [];
     state.updatedAt = new Date(); state.geoDenied = false;
-  } catch (error) { state.error = error instanceof ApiError ? error : new ApiError("No se pudo conectar con la API", "SERVICE_UNAVAILABLE", 503); } finally { state.loading = false; render(); }
+  } catch (error) { state.error = apiError(error); } finally { state.loading = false; render(); }
 }
+
+// La ubicación automática solo se pide si las estaciones se cargaron: un error de la API no se borra.
+const locateAfterLoad = () => {
+  if (!state.error && !state.locationRequested && !api.useFixtures) locateUser(false);
+};
 
 async function locateUser(manual = true) {
   if (manual) analytics.trackEvent("map", "center_on_user", "manual");
   state.locationRequested = true;
   state.locationStatus = "requesting";
   state.locationError = null;
-  state.error = null;
+  state.nearbyError = null;
   render();
   if (!navigator.geolocation) {
     analytics.trackEvent("map", "location_permission", "unavailable");
@@ -210,16 +225,23 @@ async function locateUser(manual = true) {
     state.geoDenied = false;
     state.nearbyMode = true;
     render();
-    const response = await api.nearby(coords.latitude, coords.longitude);
-    state.stations = (response.data || []).sort((a, b) => (a.distance_m ?? Number.MAX_SAFE_INTEGER) - (b.distance_m ?? Number.MAX_SAFE_INTEGER));
-    state.updatedAt = new Date();
+    try {
+      const response = await api.nearby(coords.latitude, coords.longitude);
+      state.stations = (response.data || []).sort((a, b) => (a.distance_m ?? Number.MAX_SAFE_INTEGER) - (b.distance_m ?? Number.MAX_SAFE_INTEGER));
+      state.updatedAt = new Date();
+      state.error = null;
+    } catch (error) {
+      // La ubicación funciona; el fallo es de la API y no debe presentarse como un problema de permisos.
+      state.nearbyMode = false;
+      if (state.stations.length) state.nearbyError = "No se pudo ordenar por cercanía. Se muestran las estaciones disponibles.";
+      else state.error = apiError(error);
+    }
   } catch (error) {
     analytics.trackEvent("map", "location_permission", error?.code === 1 ? "denied" : "unavailable");
     state.locationStatus = "denied";
     state.locationError = error?.code === 1 ? "Permiso de ubicación denegado." : "No se pudo obtener tu ubicación.";
     state.geoDenied = true;
     state.nearbyMode = false;
-    if (error instanceof ApiError) state.error = error;
   } finally {
     state.loading = false;
     render();
@@ -277,7 +299,7 @@ function bindEvents() {
     const station = currentStation();
     if (station) historyLoader.retry(station.station_id, state.period, button.dataset.historyRetry === "all" ? undefined : button.dataset.historyRetry);
   }));
-  document.querySelectorAll("[data-action='reload']").forEach((button) => button.addEventListener("click", () => loadStations()));
+  document.querySelectorAll("[data-action='reload']").forEach((button) => button.addEventListener("click", () => loadStations().then(locateAfterLoad)));
   document.querySelectorAll("[data-action='locate']").forEach((button) => button.addEventListener("click", () => locateUser()));
   document.querySelectorAll("[data-filter]").forEach((button) => button.addEventListener("click", () => {
     if (state.filter === button.dataset.filter) return;
@@ -371,6 +393,4 @@ function render() {
 }
 
 render();
-loadStations().then(() => {
-  if (!state.locationRequested && !api.useFixtures) locateUser(false);
-});
+loadStations().then(locateAfterLoad);
