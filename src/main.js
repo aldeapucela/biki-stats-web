@@ -13,6 +13,7 @@ let refreshTimer;
 const historyLoader = createHistoryLoader({ api, onChange: () => { if (state.route === "history") render(); } });
 
 document.documentElement.dataset.theme = state.theme;
+const routeTitles = { map: "Movilidad · BIKI Valladolid", saved: "Guardadas · Movilidad BIKI", history: "Histórico · Movilidad BIKI", more: "Más · Movilidad BIKI" };
 const routeFromLocation = () => {
   const path = window.location.pathname.replace(/\/+$/, "") || "/";
   if (path === "/" || path === "/map") return "map";
@@ -384,6 +385,7 @@ function bindEvents() {
 }
 
 function render() {
+  document.title = routeTitles[state.route] ?? routeTitles.map;
   const content = state.route === "history" ? historyView() : state.route === "saved" ? savedView() : state.route === "more" ? moreView() : mapView();
   document.querySelector("#app").innerHTML = shell(content); bindEvents();
   analytics.trackPageView(state.route);
