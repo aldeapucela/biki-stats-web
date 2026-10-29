@@ -3,6 +3,7 @@ import L from "leaflet";
 import "./styles.css";
 import "./history-overrides.css";
 import { api, ApiError } from "./api.js";
+import { createHistoryLoader } from "./history-loader.js";
 import { analytics } from "./analytics.js";
 import { bikesTone } from "./tone.js";
 import { navigate, setTheme, state, toggleFavorite } from "./state.js";
@@ -10,9 +11,10 @@ import { navigate, setTheme, state, toggleFavorite } from "./state.js";
 let map;
 let markers = [];
 let refreshTimer;
-let historyCache = new Map();
+const historyLoader = createHistoryLoader({ api, onChange: () => { if (state.route === "history") render(); } });
 
 document.documentElement.dataset.theme = state.theme;
+const routeTitles = { map: "Movilidad · BIKI Valladolid", saved: "Guardadas · Movilidad BIKI", history: "Histórico · Movilidad BIKI", more: "Más · Movilidad BIKI" };
 const routeFromLocation = () => {
   const path = window.location.pathname.replace(/\/+$/, "") || "/";
   if (path === "/" || path === "/map") return "map";
@@ -30,6 +32,11 @@ const occupancyTone = (value) => value == null ? "unknown" : value >= 75 ? "high
 const locationMessage = () => state.locationStatus === "requesting" ? "Solicitando ubicación…" : state.locationStatus === "available" ? "Ubicación activa" : state.locationStatus === "denied" ? "Ubicación no disponible" : "Cerca de mí";
 const currentStation = () => state.stations.find((station) => station.station_id === state.selectedStationId) || state.stations[0];
 const stationById = (stationId) => state.stations.find((station) => station.station_id === stationId);
+// Un error de la API solo sustituye a la lista si no hay estaciones que mostrar; con datos cargados
+// se conserva la lista y se avisa aparte, sin bloquearla.
+const stationsUnavailable = () => Boolean(state.error) && !state.stations.length;
+const panelNotice = () => (state.error && state.stations.length ? "No se pudieron actualizar los datos. Se muestran los últimos recibidos." : state.nearbyError);
+const apiError = (error) => (error instanceof ApiError ? error : new ApiError("No se pudo conectar con la API", "SERVICE_UNAVAILABLE", 503));
 const focusStationOnMap = (stationId) => {
   const station = stationById(stationId);
   if (!map || station?.location?.latitude == null || station.location.longitude == null) return;
@@ -112,9 +119,14 @@ function filterStations() {
   });
 }
 
+function mapLayout() {
+  return `<div class="map-layout"><aside class="station-panel ${state.stationPanelExpanded ? "expanded" : "collapsed"}" aria-label="Lista de estaciones"><button type="button" class="station-panel-handle" data-panel-toggle aria-label="${state.stationPanelExpanded ? "Minimizar" : "Expandir"} listado de estaciones" aria-expanded="${state.stationPanelExpanded}"><span aria-hidden="true"></span></button><div class="search-wrap"><label for="station-search" class="sr-only">Buscar estación</label><span aria-hidden="true">⌕</span><input id="station-search" type="search" placeholder="Buscar por nombre" value="${esc(state.query)}" /></div><div class="filter-chips" role="group" aria-label="Filtros de ocupación">${[["all", "Todas"], ["electric", "Eléctricas"], ["low", "Poca ocupación"], ["high", "Muy ocupadas"]].map(([key, label]) => `<button class="chip ${state.filter === key ? "active" : ""}" data-filter="${key}">${label}</button>`).join("")}</div><div class="panel-status"><span>${filterStations().length} estaciones</span><span>${state.updatedAt ? `Consulta ${state.updatedAt.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}` : state.loading ? "Cargando…" : "Sin datos"}</span></div><div id="station-list" class="station-list">${state.loading ? loadingState() : filterStations().map((station) => stationCard(station)).join("") || emptyState("No hay estaciones que coincidan", "Prueba con otro nombre o filtro.")}</div></aside><div id="map" class="map-container" aria-label="Mapa de estaciones BIKI"></div></div>`;
+}
+
 function mapView() {
   return `<section class="page map-page"><div class="page-heading"><div><p class="eyebrow">VALLADOLID · INFORMACIÓN EN TIEMPO DIFERIDO</p><h1>Estaciones BIKI</h1><p class="lede">Consulta bicicletas y anclajes disponibles cerca de ti.</p></div><button class="secondary-button" data-action="locate" ${state.locationStatus === "requesting" ? "disabled" : ""}>⌖ ${locationMessage()}</button></div>
-    <div class="map-layout"><aside class="station-panel ${state.stationPanelExpanded ? "expanded" : "collapsed"}" aria-label="Lista de estaciones"><button type="button" class="station-panel-handle" data-panel-toggle aria-label="${state.stationPanelExpanded ? "Minimizar" : "Expandir"} listado de estaciones" aria-expanded="${state.stationPanelExpanded}"><span aria-hidden="true"></span></button><div class="search-wrap"><label for="station-search" class="sr-only">Buscar estación</label><span aria-hidden="true">⌕</span><input id="station-search" type="search" placeholder="Buscar por nombre" value="${esc(state.query)}" /></div><div class="filter-chips" role="group" aria-label="Filtros de ocupación">${[["all", "Todas"], ["electric", "Eléctricas"], ["low", "Poca ocupación"], ["high", "Muy ocupadas"]].map(([key, label]) => `<button class="chip ${state.filter === key ? "active" : ""}" data-filter="${key}">${label}</button>`).join("")}</div><div class="panel-status"><span>${filterStations().length} estaciones</span><span>${state.updatedAt ? `Consulta ${state.updatedAt.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}` : "Cargando…"}</span></div><div id="station-list" class="station-list">${state.loading ? loadingState() : state.error ? errorState(state.error) : filterStations().map((station) => stationCard(station)).join("") || emptyState("No hay estaciones que coincidan", "Prueba con otro nombre o filtro.")}</div></aside><div id="map" class="map-container" aria-label="Mapa de estaciones BIKI"></div></div></section>`;
+    ${panelNotice() ? `<p class="panel-notice" role="status">${esc(panelNotice())}</p>` : ""}
+    ${stationsUnavailable() ? `<div class="map-error">${errorState(state.error)}</div>` : mapLayout()}</section>`;
 }
 
 function historyView() {
@@ -129,12 +141,13 @@ function historyView() {
 }
 
 function historyContent(station) {
-  const cached = historyCache.get(`${station.station_id}:${state.period}`);
-  if (!cached || cached.loading) return loadingState("Cargando histórico…");
-  if (cached.error) return errorState(cached.error);
-  const points = cached.history.points || [];
-  const summary = cached.summary;
-  return `<div class="history-kpis"><div class="kpi-card"><span>Ocupación media</span><strong>${formatNumber(summary?.occupancy?.average_percent, 1)}%</strong><small>${state.period} · ${summary?.observations || 0} observaciones</small></div><div class="kpi-card"><span>Máxima ocupación</span><strong>${formatNumber(summary?.occupancy?.maximum_percent, 1)}%</strong><small>${formatDate(summary?.occupancy?.maximum_at)}</small></div><div class="kpi-card"><span>Mínima ocupación</span><strong>${formatNumber(summary?.occupancy?.minimum_percent, 1)}%</strong><small>${formatDate(summary?.occupancy?.minimum_at)}</small></div><div class="kpi-card"><span>Bicis medias</span><div class="average-bikes"><div><i class="legend-dot mechanical"></i><strong>${formatNumber(summary?.bikes?.mechanical_average, 1)}</strong><small>Mecánicas</small></div><div><i class="legend-dot electric"></i><strong>${formatNumber(summary?.bikes?.electric_average, 1)}</strong><small>Eléctricas</small></div></div></div></div><div class="chart-card"><div class="card-heading"><div><p class="eyebrow">DISPONIBILIDAD POR PERIODO</p><h2>Ocupación y anclajes</h2></div><span class="legend"><i class="legend-dot mechanical"></i>Mecánicas <i class="legend-dot electric"></i>Eléctricas <i class="legend-dot docks"></i>Libres</span></div>${points.length ? stackedChart(points) : emptyState("Sin observaciones", "No hay datos históricos para este periodo.")}</div><div class="history-lower"><div class="chart-card composition-card"><div class="card-heading"><div><p class="eyebrow">COMPOSICIÓN MEDIA</p><h2>Qué hay en la estación</h2></div></div>${donut(summary?.composition)}<div class="composition-legend"><span><i class="legend-dot mechanical"></i>Mecánicas ${formatNumber(summary?.composition?.mechanical_percent, 0)}%</span><span><i class="legend-dot electric"></i>Eléctricas ${formatNumber(summary?.composition?.electric_percent, 0)}%</span><span><i class="legend-dot docks"></i>Libres ${formatNumber(summary?.composition?.free_docks_percent, 0)}%</span></div></div><div class="chart-card missing-card"><p class="eyebrow">CALIDAD DEL DATO</p><h2>Sin inventar huecos</h2><p>Se han recibido <strong>${formatNumber(summary?.observations)}</strong> observaciones. ${summary?.missing_buckets ? `Faltan ${summary.missing_buckets} periodos; se muestran como ausencia de datos.` : "No se han detectado periodos vacíos."}</p><p class="freshness">Última observación: ${formatDate(summary?.last_observed_at)}</p></div></div></div>`;
+  const entry = historyLoader.get(station.station_id, state.period);
+  if (!entry || (entry.history.data === undefined && entry.summary.data === undefined && [entry.history, entry.summary].some((part) => part.status === "loading"))) return loadingState(entry?.slow ? SLOW_MESSAGE : "Cargando histórico…");
+  if (entry.history.data === undefined && entry.summary.data === undefined) return partError("No se pudo cargar el histórico", entry.history.error || entry.summary.error, "all");
+  const points = entry.history.data?.points || [];
+  const summary = entry.summary.data;
+  const chart = entry.history.data === undefined ? (entry.history.status === "loading" ? loadingState("Cargando gráfico…") : partError("No se pudo cargar el gráfico", entry.history.error, "history")) : points.length ? stackedChart(points) : emptyState("Sin observaciones", "No hay datos históricos para este periodo.");
+  return `${historyNotice(entry)}<div class="history-kpis"><div class="kpi-card"><span>Ocupación media</span><strong>${formatNumber(summary?.occupancy?.average_percent, 1)}%</strong><small>${state.period} · ${summary ? `${summary.observations || 0} observaciones` : "sin resumen"}</small></div><div class="kpi-card"><span>Máxima ocupación</span><strong>${formatNumber(summary?.occupancy?.maximum_percent, 1)}%</strong><small>${formatDate(summary?.occupancy?.maximum_at)}</small></div><div class="kpi-card"><span>Mínima ocupación</span><strong>${formatNumber(summary?.occupancy?.minimum_percent, 1)}%</strong><small>${formatDate(summary?.occupancy?.minimum_at)}</small></div><div class="kpi-card"><span>Bicis medias</span><div class="average-bikes"><div><i class="legend-dot mechanical"></i><strong>${formatNumber(summary?.bikes?.mechanical_average, 1)}</strong><small>Mecánicas</small></div><div><i class="legend-dot electric"></i><strong>${formatNumber(summary?.bikes?.electric_average, 1)}</strong><small>Eléctricas</small></div></div></div></div><div class="chart-card"><div class="card-heading"><div><p class="eyebrow">DISPONIBILIDAD POR PERIODO</p><h2>Ocupación y anclajes</h2></div><span class="legend"><i class="legend-dot mechanical"></i>Mecánicas <i class="legend-dot electric"></i>Eléctricas <i class="legend-dot docks"></i>Libres</span></div>${chart}</div><div class="history-lower"><div class="chart-card composition-card"><div class="card-heading"><div><p class="eyebrow">COMPOSICIÓN MEDIA</p><h2>Qué hay en la estación</h2></div></div>${summary ? `${donut(summary.composition)}<div class="composition-legend"><span><i class="legend-dot mechanical"></i>Mecánicas ${formatNumber(summary.composition?.mechanical_percent, 0)}%</span><span><i class="legend-dot electric"></i>Eléctricas ${formatNumber(summary.composition?.electric_percent, 0)}%</span><span><i class="legend-dot docks"></i>Libres ${formatNumber(summary.composition?.free_docks_percent, 0)}%</span></div>` : `<p class="freshness">Sin resumen: la composición no está disponible.</p>`}</div><div class="chart-card missing-card"><p class="eyebrow">CALIDAD DEL DATO</p><h2>Sin inventar huecos</h2>${summary ? `<p>Se han recibido <strong>${formatNumber(summary.observations)}</strong> observaciones. ${summary.missing_buckets ? `Faltan ${summary.missing_buckets} periodos; se muestran como ausencia de datos.` : "No se han detectado periodos vacíos."}</p><p class="freshness">Última observación: ${formatDate(summary.last_observed_at)}</p>` : `<p>Sin resumen: no se puede saber cuántas observaciones hay ni si faltan periodos.</p>`}</div></div></div>`;
 }
 
 function stackedChart(points) {
@@ -159,6 +172,16 @@ function moreView() {
 const loadingState = (message = "Cargando estaciones…") => `<div class="state-card"><span class="spinner"></span><p>${message}</p></div>`;
 const emptyState = (title, message) => `<div class="state-card empty"><span class="state-icon">◌</span><h2>${title}</h2><p>${message}</p></div>`;
 const errorState = (error) => `<div class="state-card error"><span class="state-icon">!</span><h2>No se pudieron cargar los datos</h2><p>${esc(error?.message || "Comprueba la conexión e inténtalo de nuevo.")}</p><button class="secondary-button" data-action="reload">Reintentar</button></div>`;
+const SLOW_MESSAGE = "Esta consulta tarda más de lo habitual. Los periodos largos pueden necesitar varios segundos…";
+const partError = (title, error, part) => `<div class="state-card error"><span class="state-icon">!</span><h2>${title}</h2><p>${esc(error?.message || "Comprueba la conexión e inténtalo de nuevo.")}</p><button class="secondary-button" data-history-retry="${part}">Reintentar</button></div>`;
+function historyNotice(entry) {
+  const { history, summary } = entry;
+  if (summary.data === undefined && summary.status === "error") return `<div class="history-notice error" role="status"><span>No se pudo cargar el resumen: ${esc(summary.error?.message || "error desconocido")}. Los valores se muestran como «—».</span><button class="secondary-button" data-history-retry="summary">Reintentar</button></div>`;
+  const loading = [history, summary].some((part) => part.status === "loading" && part.data === undefined);
+  if (loading && entry.slow) return `<div class="history-notice" role="status">${SLOW_MESSAGE}</div>`;
+  if (summary.data === undefined && summary.status === "loading") return `<div class="history-notice" role="status">Cargando resumen…</div>`;
+  return "";
+}
 const formatDate = (value) => value ? new Date(value).toLocaleString("es-ES", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "Sin fecha";
 
 function getCurrentPosition() {
@@ -172,15 +195,20 @@ async function loadStations(useLocation = false) {
     state.nearbyMode = useLocation;
     state.stations = response.data || [];
     state.updatedAt = new Date(); state.geoDenied = false;
-  } catch (error) { state.error = error instanceof ApiError ? error : new ApiError("No se pudo conectar con la API", "SERVICE_UNAVAILABLE", 503); } finally { state.loading = false; render(); }
+  } catch (error) { state.error = apiError(error); } finally { state.loading = false; render(); }
 }
+
+// La ubicación automática solo se pide si las estaciones se cargaron: un error de la API no se borra.
+const locateAfterLoad = () => {
+  if (!state.error && !state.locationRequested && !api.useFixtures) locateUser(false);
+};
 
 async function locateUser(manual = true) {
   if (manual) analytics.trackEvent("map", "center_on_user", "manual");
   state.locationRequested = true;
   state.locationStatus = "requesting";
   state.locationError = null;
-  state.error = null;
+  state.nearbyError = null;
   render();
   if (!navigator.geolocation) {
     analytics.trackEvent("map", "location_permission", "unavailable");
@@ -199,27 +227,32 @@ async function locateUser(manual = true) {
     state.geoDenied = false;
     state.nearbyMode = true;
     render();
-    const response = await api.nearby(coords.latitude, coords.longitude);
-    state.stations = (response.data || []).sort((a, b) => (a.distance_m ?? Number.MAX_SAFE_INTEGER) - (b.distance_m ?? Number.MAX_SAFE_INTEGER));
-    state.updatedAt = new Date();
+    try {
+      const response = await api.nearby(coords.latitude, coords.longitude);
+      state.stations = (response.data || []).sort((a, b) => (a.distance_m ?? Number.MAX_SAFE_INTEGER) - (b.distance_m ?? Number.MAX_SAFE_INTEGER));
+      state.updatedAt = new Date();
+      state.error = null;
+    } catch (error) {
+      // La ubicación funciona; el fallo es de la API y no debe presentarse como un problema de permisos.
+      state.nearbyMode = false;
+      if (state.stations.length) state.nearbyError = "No se pudo ordenar por cercanía. Se muestran las estaciones disponibles.";
+      else state.error = apiError(error);
+    }
   } catch (error) {
     analytics.trackEvent("map", "location_permission", error?.code === 1 ? "denied" : "unavailable");
     state.locationStatus = "denied";
     state.locationError = error?.code === 1 ? "Permiso de ubicación denegado." : "No se pudo obtener tu ubicación.";
     state.geoDenied = true;
     state.nearbyMode = false;
-    if (error instanceof ApiError) state.error = error;
   } finally {
     state.loading = false;
     render();
   }
 }
 
-async function loadHistory() {
+function loadHistory() {
   const station = currentStation(); if (!station) return;
-  const key = `${station.station_id}:${state.period}`; if (historyCache.has(key)) return;
-  historyCache.set(key, { loading: true }); render();
-  try { const [history, summary] = await Promise.all([api.history(station.station_id, state.period), api.summary(station.station_id, state.period)]); historyCache.set(key, { history: history.data, summary: summary.data }); } catch (error) { historyCache.set(key, { error: error instanceof ApiError ? error : new ApiError("No se pudo cargar el histórico") }); } render();
+  historyLoader.load(station.station_id, state.period);
 }
 
 function renderMap() { document.querySelector("#map")?.remove(); renderMapInstance(); }
@@ -274,7 +307,11 @@ function renderMapInstance() {
 function bindEvents() {
   document.querySelector("[data-panel-toggle]")?.addEventListener("click", toggleStationPanel);
   document.querySelectorAll("[data-action='theme']").forEach((button) => button.addEventListener("click", () => { const theme = state.theme === "dark" ? "light" : "dark"; setTheme(theme); analytics.trackEvent("ui", "change_theme", theme); render(); }));
-  document.querySelectorAll("[data-action='reload']").forEach((button) => button.addEventListener("click", () => loadStations()));
+  document.querySelectorAll("[data-history-retry]").forEach((button) => button.addEventListener("click", () => {
+    const station = currentStation();
+    if (station) historyLoader.retry(station.station_id, state.period, button.dataset.historyRetry === "all" ? undefined : button.dataset.historyRetry);
+  }));
+  document.querySelectorAll("[data-action='reload']").forEach((button) => button.addEventListener("click", () => loadStations().then(locateAfterLoad)));
   document.querySelectorAll("[data-action='locate']").forEach((button) => button.addEventListener("click", () => locateUser()));
   document.querySelectorAll("[data-filter]").forEach((button) => button.addEventListener("click", () => {
     if (state.filter === button.dataset.filter) return;
@@ -341,7 +378,7 @@ function bindEvents() {
     render();
     requestAnimationFrame(() => document.querySelector("#history-station-search")?.focus());
   });
-  document.querySelectorAll("[data-history-station]").forEach((button) => button.addEventListener("click", () => { state.selectedStationId = button.dataset.historyStation; analytics.trackEvent("history", "select_station", button.dataset.historyStation); state.historyQuery = ""; state.historyPickerOpen = false; historyCache = new Map(); render(); }));
+  document.querySelectorAll("[data-history-station]").forEach((button) => button.addEventListener("click", () => { state.selectedStationId = button.dataset.historyStation; analytics.trackEvent("history", "select_station", button.dataset.historyStation); state.historyQuery = ""; state.historyPickerOpen = false; historyLoader.clear(); render(); }));
   document.querySelector("#history-station-search")?.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
       state.historyPickerOpen = false;
@@ -359,6 +396,7 @@ function bindEvents() {
 }
 
 function render() {
+  document.title = routeTitles[state.route] ?? routeTitles.map;
   const content = state.route === "history" ? historyView() : state.route === "saved" ? savedView() : state.route === "more" ? moreView() : mapView();
   document.querySelector("#app").innerHTML = shell(content); bindEvents();
   analytics.trackPageView(state.route);
@@ -368,6 +406,4 @@ function render() {
 }
 
 render();
-loadStations().then(() => {
-  if (!state.locationRequested && !api.useFixtures) locateUser(false);
-});
+loadStations().then(locateAfterLoad);

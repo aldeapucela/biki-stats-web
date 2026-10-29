@@ -32,6 +32,7 @@ export const state = {
   locationRequested: false,
   locationStatus: "idle",
   locationError: null,
+  nearbyError: null,
   stationPanelExpanded: false,
 };
 
