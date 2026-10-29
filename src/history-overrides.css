@@ -7,3 +7,10 @@
   max-height: 230px;
   margin-top: 0;
 }
+
+.history-notice { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; border: 1px solid #f6c1a5; border-radius: 12px; padding: 10px 14px; background: #fff7f2; color: #7a3a14; font-size: .85rem; }
+.history-notice.error { border-color: #e9b4a0; background: #fff0e9; }
+.history-notice .secondary-button { flex: none; }
+[data-theme="dark"] .history-notice { border-color: #5a3a28; background: #2a2019; color: #f2d2c0; }
+[data-theme="dark"] .history-notice.error { border-color: #7a3f2c; background: #2f1d17; }
+@media (max-width: 700px) { .history-notice { align-items: stretch; flex-direction: column; } }
