@@ -39,11 +39,27 @@ const dateRange = (period, now = new Date()) => {
   return { from: from.toISOString(), to: to.toISOString(), granularity: days > 7 ? "day" : "hour" };
 };
 
+// La API limita `limit` a 100; se recorren las páginas hasta que `has_more` sea falso.
+export async function collectPages(fetchPage, maxPages = 20) {
+  const data = [];
+  for (let page = 0; page < maxPages; page += 1) {
+    const response = await fetchPage(data.length);
+    const items = response.data || [];
+    data.push(...items);
+    if (!response.meta?.pagination?.has_more || items.length === 0) break;
+  }
+  return { ...envelope(data), meta: {} };
+}
+
 export const api = {
   async listStations(params = {}, signal) {
     if (useFixtures) return envelope(fixtureStations);
     const query = new URLSearchParams(Object.entries(params).filter(([, value]) => value !== undefined && value !== ""));
     return request(`/stations?${query}`, signal);
+  },
+  async listAllStations(params = {}, signal) {
+    if (useFixtures) return envelope(fixtureStations);
+    return collectPages((offset) => api.listStations({ ...params, limit: 100, offset }, signal));
   },
   async nearby(lat, lon, signal) {
     if (useFixtures) return envelope(fixtureStations.map((item, index) => ({ ...item, distance_m: 320 + index * 180 })));
