@@ -4,6 +4,7 @@ import "./styles.css";
 import "./history-overrides.css";
 import { api, ApiError } from "./api.js";
 import { analytics } from "./analytics.js";
+import { bikesTone } from "./tone.js";
 import { navigate, setTheme, state, toggleFavorite } from "./state.js";
 
 let map;
@@ -230,11 +231,21 @@ function renderMapInstance() {
   map = L.map(container, { zoomControl: false }).setView(center, state.userLocation ? 14 : 13);
   L.control.zoom({ position: "topright" }).addTo(map);
   L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' }).addTo(map);
+  const legend = L.control({ position: "bottomleft" });
+  legend.onAdd = () => {
+    const el = L.DomUtil.create("div", "map-legend");
+    el.setAttribute("role", "group");
+    el.setAttribute("aria-label", "Leyenda del mapa");
+    el.innerHTML = `<span><b class="marker-value mechanical">M</b>mecánica</span><span><b class="marker-value electric">E</b>eléctrica</span><span><i class="bikes-ok"></i>4 o más bicis</span><span><i class="bikes-few"></i>1 a 3</span><span><i class="bikes-none"></i>0</span>`;
+    L.DomEvent.disableClickPropagation(el);
+    return el;
+  };
+  legend.addTo(map);
   if (state.userLocation) L.circleMarker(center, { radius: 9, color: "#73579f", fillColor: "#b9a7d7", fillOpacity: 0.95, weight: 3, className: "user-location-marker" }).addTo(map).bindTooltip("Tu ubicación");
   const visibleStations = filterStations();
   markers = visibleStations.filter((station) => station.location?.latitude != null).map((station) => {
     const selected = state.selectedStationId === station.station_id;
-    const marker = L.marker([station.location.latitude, station.location.longitude], { icon: L.divIcon({ className: `station-marker ${occupancyTone(station.occupancy_percent)}${selected ? " selected" : ""}`, html: `<span class="marker-values"><span class="marker-value mechanical">M ${formatNumber(station.bikes?.mechanical)}</span><span class="marker-value electric">E ${formatNumber(station.bikes?.electric)}</span></span>`, iconSize: [48, 44], iconAnchor: [24, 22] }) }).addTo(map).bindPopup(stationTooltip(station), { className: "station-popup", closeButton: true, autoClose: true, closeOnClick: true, maxWidth: 260 });
+    const marker = L.marker([station.location.latitude, station.location.longitude], { icon: L.divIcon({ className: `station-marker bikes-${bikesTone(station)}${selected ? " selected" : ""}`, html: `<span class="marker-values"><span class="marker-value mechanical">M ${formatNumber(station.bikes?.mechanical)}</span><span class="marker-value electric">E ${formatNumber(station.bikes?.electric)}</span></span>`, iconSize: [48, 44], iconAnchor: [24, 22] }) }).addTo(map).bindPopup(stationTooltip(station), { className: "station-popup", closeButton: true, autoClose: true, closeOnClick: true, maxWidth: 260 });
     marker.stationId = station.station_id;
     marker.on("click", (event) => {
       L.DomEvent.stopPropagation(event);
