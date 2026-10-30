@@ -1,0 +1,23 @@
+/* Estación destino: tarjeta sobre el mapa, botón en popup y tarjetas, y la línea recta hasta ella. */
+.destination-card { margin-bottom: 14px; padding: 16px 20px; border: 1px solid #66517d55; border-radius: 20px; background: #f1e8d5; color: #27272a; }
+[data-theme="dark"] .destination-card { border-color: #a58fc455; background: #2a2620; color: #f5f3ee; }
+.destination-head { display: flex; align-items: start; justify-content: space-between; gap: 12px; }
+.destination-head .eyebrow { margin: 0; }
+.destination-head h2 { margin: 2px 0 0; font-size: 1.3rem; }
+.destination-docks { margin: 10px 0 2px; font-size: 1rem; }
+.destination-docks strong { font-size: 2rem; letter-spacing: -.04em; }
+.destination-bikes, .destination-trip { margin: 2px 0; font-size: .88rem; }
+.destination-card .freshness { margin: 8px 0 0; }
+.destination-alert { margin: 8px 0 0; padding: 8px 12px; border-radius: 10px; background: #fff7ed; color: #7c2d12; font-size: .88rem; font-weight: 600; }
+[data-theme="dark"] .destination-alert { background: #3a2318; color: #fdba74; }
+.destination-card.missing { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.link-button { padding: 0; border: 0; background: none; color: inherit; font: inherit; font-weight: 700; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.destination-button { display: block; width: 100%; margin-top: 10px; padding: 9px 12px; border: 1.5px solid #4f3e62; border-radius: 10px; background: transparent; color: #4f3e62; font: inherit; font-size: .85rem; font-weight: 700; cursor: pointer; }
+.destination-button[aria-pressed="true"] { background: #4f3e62; color: #fff; }
+[data-theme="dark"] .destination-button { border-color: #a58fc4; color: #d9cdeb; }
+[data-theme="dark"] .destination-button[aria-pressed="true"] { background: #a58fc4; color: #1b1426; }
+.map-directions-link { display: block; margin-top: 8px; color: #4f3e62; font-size: .8rem; font-weight: 600; text-decoration: underline; text-underline-offset: 3px; }
+.destination-line { stroke: #4f3e62; stroke-width: 4; stroke-dasharray: 2 9; stroke-linecap: round; fill: none; }
+[data-theme="dark"] .destination-line { stroke: #d9cdeb; }
+.station-marker.destination .marker-values { outline: 3px solid #4f3e62; outline-offset: 2px; border-radius: 12px; }
+@media (max-width: 700px) { .destination-card { padding: 14px 16px; } .destination-docks strong { font-size: 1.7rem; } }
