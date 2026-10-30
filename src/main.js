@@ -2,10 +2,12 @@ import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 import "./styles.css";
 import "./history-overrides.css";
+import "./history-stats.css";
 import { api, ApiError } from "./api.js";
 import { createHistoryLoader } from "./history-loader.js";
 import { analytics } from "./analytics.js";
 import { bikesTone } from "./tone.js";
+import { TIME_ZONE, bestAndWorstHour, freeDocks, heatmapRows, hourlyAverages, madridParts, stationSlots, totalBikes } from "./history-stats.js";
 import { navigate, setTheme, state, toggleFavorite } from "./state.js";
 
 let map;
@@ -147,18 +149,95 @@ function historyContent(station) {
   const points = entry.history.data?.points || [];
   const summary = entry.summary.data;
   const chart = entry.history.data === undefined ? (entry.history.status === "loading" ? loadingState("Cargando gráfico…") : partError("No se pudo cargar el gráfico", entry.history.error, "history")) : points.length ? stackedChart(points) : emptyState("Sin observaciones", "No hay datos históricos para este periodo.");
-  return `${historyNotice(entry)}<div class="history-kpis"><div class="kpi-card"><span>Ocupación media</span><strong>${formatNumber(summary?.occupancy?.average_percent, 1)}%</strong><small>${state.period} · ${summary ? `${summary.observations || 0} observaciones` : "sin resumen"}</small></div><div class="kpi-card"><span>Máxima ocupación</span><strong>${formatNumber(summary?.occupancy?.maximum_percent, 1)}%</strong><small>${formatDate(summary?.occupancy?.maximum_at)}</small></div><div class="kpi-card"><span>Mínima ocupación</span><strong>${formatNumber(summary?.occupancy?.minimum_percent, 1)}%</strong><small>${formatDate(summary?.occupancy?.minimum_at)}</small></div><div class="kpi-card"><span>Bicis medias</span><div class="average-bikes"><div><i class="legend-dot mechanical"></i><strong>${formatNumber(summary?.bikes?.mechanical_average, 1)}</strong><small>Mecánicas</small></div><div><i class="legend-dot electric"></i><strong>${formatNumber(summary?.bikes?.electric_average, 1)}</strong><small>Eléctricas</small></div></div></div></div><div class="chart-card"><div class="card-heading"><div><p class="eyebrow">DISPONIBILIDAD POR PERIODO</p><h2>Ocupación y anclajes</h2></div><span class="legend"><i class="legend-dot mechanical"></i>Mecánicas <i class="legend-dot electric"></i>Eléctricas <i class="legend-dot docks"></i>Libres</span></div>${chart}</div><div class="history-lower"><div class="chart-card composition-card"><div class="card-heading"><div><p class="eyebrow">COMPOSICIÓN MEDIA</p><h2>Qué hay en la estación</h2></div></div>${summary ? `${donut(summary.composition)}<div class="composition-legend"><span><i class="legend-dot mechanical"></i>Mecánicas ${formatNumber(summary.composition?.mechanical_percent, 0)}%</span><span><i class="legend-dot electric"></i>Eléctricas ${formatNumber(summary.composition?.electric_percent, 0)}%</span><span><i class="legend-dot docks"></i>Libres ${formatNumber(summary.composition?.free_docks_percent, 0)}%</span></div>` : `<p class="freshness">Sin resumen: la composición no está disponible.</p>`}</div><div class="chart-card missing-card"><p class="eyebrow">CALIDAD DEL DATO</p><h2>Sin inventar huecos</h2>${summary ? `<p>Se han recibido <strong>${formatNumber(summary.observations)}</strong> observaciones. ${summary.missing_buckets ? `Faltan ${summary.missing_buckets} periodos; se muestran como ausencia de datos.` : "No se han detectado periodos vacíos."}</p><p class="freshness">Última observación: ${formatDate(summary.last_observed_at)}</p>` : `<p>Sin resumen: no se puede saber cuántas observaciones hay ni si faltan periodos.</p>`}</div></div></div>`;
+  const hasPoints = points.length > 0;
+  const observations = summary ? `<p class="data-note">${formatNumber(summary.observations)} observaciones · última ${esc(formatDate(summary.last_observed_at))}. ${summary.missing_buckets ? `Faltan ${summary.missing_buckets} periodos y se muestran como ausencia de datos, no inventados.` : "Sin periodos vacíos."}</p>` : `<p class="data-note">Sin resumen: no se puede saber cuántas observaciones hay ni si faltan periodos.</p>`;
+  return `${historyNotice(entry)}${hasPoints ? lastReadingCard(points[points.length - 1]) : ""}${summaryKpis(summary)}${hasPoints ? hourKpis(points) : ""}${hasPoints && state.period !== "24h" ? heatmap(points) : ""}<div class="chart-card"><div class="card-heading"><div><p class="eyebrow">EVOLUCIÓN</p><h2>Bicis disponibles a lo largo del tiempo</h2></div><span class="legend"><i class="legend-dot mechanical"></i>Mecánicas <i class="legend-dot electric"></i>Eléctricas</span></div>${chart}</div>${observations}`;
 }
 
+const hourLabel = (hour) => `${String(hour).padStart(2, "0")}:00`;
+const hourKpi = (label, entry, unit) => `<div class="kpi-card"><span>${label}</span><strong>${entry ? hourLabel(entry.hour) : "—"}</strong><small>${entry ? `${formatNumber(entry.value, 1)} ${unit} de media` : "Sin datos"}</small></div>`;
+
+function summaryKpis(summary) {
+  return `<div class="history-kpis"><div class="kpi-card"><span>Ocupación media</span><strong>${formatNumber(summary?.occupancy?.average_percent, 1)}%</strong><small>${state.period} · ${summary ? `${summary.observations || 0} observaciones` : "sin resumen"}</small></div><div class="kpi-card"><span>Máxima ocupación</span><strong>${formatNumber(summary?.occupancy?.maximum_percent, 1)}%</strong><small>${formatDate(summary?.occupancy?.maximum_at)}</small></div><div class="kpi-card"><span>Mínima ocupación</span><strong>${formatNumber(summary?.occupancy?.minimum_percent, 1)}%</strong><small>${formatDate(summary?.occupancy?.minimum_at)}</small></div><div class="kpi-card"><span>Bicis medias</span><div class="average-bikes"><div><i class="legend-dot mechanical"></i><strong>${formatNumber(summary?.bikes?.mechanical_average, 1)}</strong><small>Mecánicas</small></div><div><i class="legend-dot electric"></i><strong>${formatNumber(summary?.bikes?.electric_average, 1)}</strong><small>Eléctricas</small></div></div></div></div>`;
+}
+
+// Mejor y peor hora, en hora de Madrid, para coger (bicis) y para dejar (huecos libres).
+function hourKpis(points) {
+  const bikes = bestAndWorstHour(hourlyAverages(points, totalBikes));
+  const docks = bestAndWorstHour(hourlyAverages(points, freeDocks));
+  return `<div class="hour-kpis">${hourKpi("Mejor hora para coger", bikes?.best, "bicis")}${hourKpi("Peor hora para coger", bikes?.worst, "bicis")}${hourKpi("Mejor hora para dejar", docks?.best, "huecos")}${hourKpi("Peor hora para dejar", docks?.worst, "huecos")}</div>`;
+}
+
+// La estación dibujada: un anclaje por plaza (bici mecánica, eléctrica o hueco libre) en la última lectura.
+function lastReadingCard(point) {
+  const { mechanical, electric, free, total } = stationSlots(point);
+  const slot = (type) => `<i class="slot ${type}"></i>`;
+  return `<div class="now-card"><p class="eyebrow">ÚLTIMA LECTURA · ${esc(formatDate(point.timestamp))}</p><h2>${formatNumber(mechanical + electric)} bicis<span> de ${formatNumber(total)} anclajes</span></h2><div class="slot-row" role="img" aria-label="${mechanical} bicis mecánicas, ${electric} eléctricas y ${free} huecos libres">${slot("mechanical").repeat(mechanical)}${slot("electric").repeat(electric)}${slot("free").repeat(free)}</div><p class="slot-legend"><span>${slot("mechanical")}${mechanical} mecánicas</span><span>${slot("electric")}${electric} eléctricas</span><span>${slot("free")}${free} huecos libres para dejar la tuya</span></p></div>`;
+}
+
+function heatmap(points) {
+  const perDay = state.period === "7d";
+  const { rows, max } = heatmapRows(points, state.period);
+  const cell = (label, hour, value) => {
+    const when = `${label} ${hourLabel(hour)}`;
+    if (value === null) return `<i class="hm-cell none" data-detail="${when} · sin datos"></i>`;
+    const share = max ? value / max : 0;
+    return `<i class="hm-cell${value === 0 ? " zero" : ""}${share >= 0.5 ? " strong" : ""}" style="--v:${share.toFixed(2)}" data-detail="${when} · ${formatNumber(value, 1)} bicis${perDay ? "" : " de media"}"><b>${Math.round(value)}</b></i>`;
+  };
+  const hours = Array.from({ length: 24 }, (_, hour) => `<span class="hm-h">${hour % 3 === 0 ? hour : ""}</span>`).join("");
+  const body = rows.map((row) => `<div class="hm-row"><span class="hm-label">${row.label}</span><div class="hm-cells">${row.cells.map((value, hour) => cell(row.label, hour, value)).join("")}</div></div>`).join("");
+  return `<div class="chart-card"><div class="card-heading"><div><p class="eyebrow">CUÁNDO HAY BICIS</p><h2>${perDay ? "Cada día, hora a hora" : "Un día típico de la semana"}</h2></div><span class="legend hm-legend">0<i class="hm-scale"></i>${formatNumber(max, 0)} bicis</span></div><p class="chart-readout hm-readout" aria-live="polite">Pasa el cursor o toca una casilla para ver el dato</p><div class="heatmap" role="img" aria-label="Mapa de calor de bicis disponibles por hora. Las mejores y peores horas están en las tarjetas de arriba."><div class="hm-row"><span class="hm-label"></span><div class="hm-cells">${hours}</div></div>${body}</div></div>`;
+}
+
+const chartDayFormat = new Intl.DateTimeFormat("es-ES", { timeZone: TIME_ZONE, weekday: "short", day: "numeric" });
+const chartHourFormat = new Intl.DateTimeFormat("es-ES", { timeZone: TIME_ZONE, hour: "2-digit", minute: "2-digit" });
+const chartDateFormat = new Intl.DateTimeFormat("es-ES", { timeZone: TIME_ZONE, day: "numeric", month: "short" });
+
+// Barras de bicis (mecánicas + eléctricas) con ejes. Los huecos libres ya no se apilan: eran más de la mitad del
+// alto y escondían lo que importa. Las horas y los días del eje van en hora de Madrid.
 function stackedChart(points) {
-  const width = 900; const height = 280; const gap = Math.max(2, Math.min(12, width / points.length / 4)); const column = Math.max(3, width / points.length - gap); const max = Math.max(...points.map((point) => point.capacity || 1), 1);
-  const bars = points.map((point, index) => { const x = index * (width / points.length) + gap; const scale = height / max; const mechanical = (point.mechanical || 0) * scale; const electric = (point.electric || 0) * scale; const docks = (point.free_docks || 0) * scale; const y = height - mechanical - electric - docks; return `<g><title>${formatDate(point.timestamp)}: ${formatNumber(point.mechanical)} mecánicas, ${formatNumber(point.electric)} eléctricas, ${formatNumber(point.free_docks)} anclajes libres</title><rect class="svg-mechanical" x="${x}" y="${height - mechanical}" width="${column}" height="${mechanical}" rx="2"/><rect class="svg-electric" x="${x}" y="${height - mechanical - electric}" width="${column}" height="${electric}" rx="2"/><rect class="svg-docks" x="${x}" y="${y}" width="${column}" height="${docks}" rx="2"/></g>`; }).join("");
-  return `<div class="chart-scroll"><svg class="stacked-chart" viewBox="0 0 ${width} ${height + 30}" role="img" aria-label="Barras apiladas de bicicletas y anclajes libres"><line class="chart-axis" x1="0" y1="${height}" x2="${width}" y2="${height}"/>${bars}</svg></div>`;
+  const width = 900; const height = 260; const left = 38; const right = 8; const top = 10; const bottom = 30;
+  const innerWidth = width - left - right; const innerHeight = height - top - bottom;
+  const peak = Math.max(...points.map(totalBikes), 1);
+  const step = Math.max(1, Math.ceil(peak / 4 / 5) * 5);
+  const ceiling = Math.ceil(peak / step) * step;
+  const y = (value) => top + innerHeight - (value / ceiling) * innerHeight;
+  const slot = innerWidth / points.length; const barWidth = Math.max(2, slot * 0.78);
+  const spanHours = (Date.parse(points[points.length - 1].timestamp) - Date.parse(points[0].timestamp)) / 3600000;
+  const tick = (x, text, anchor) => `<text class="chart-tick" x="${x}" y="${height - 10}" text-anchor="${anchor}">${text}</text>`;
+  const grid = [];
+  for (let value = 0; value <= ceiling; value += step) grid.push(`<line class="chart-grid" x1="${left}" x2="${width - right}" y1="${y(value)}" y2="${y(value)}"/><text class="chart-tick" x="${left - 6}" y="${y(value) + 4}" text-anchor="end">${value}</text>`);
+  const labels = []; const every = Math.max(1, Math.round(points.length / 6)); let lastDay = null;
+  points.forEach((point, index) => {
+    const at = new Date(point.timestamp); const x = left + index * slot;
+    if (spanHours <= 36) { if (index % every === 0) labels.push(tick(x + slot / 2, chartHourFormat.format(at), "middle")); return; }
+    if (spanHours > 24 * 8) { if (index % every === 0) labels.push(tick(x + slot / 2, chartDateFormat.format(at), "middle")); return; }
+    const { dayKey } = madridParts(point.timestamp);
+    if (dayKey === lastDay) return;
+    lastDay = dayKey;
+    const next = points.findIndex((other, position) => position > index && madridParts(other.timestamp).dayKey !== dayKey);
+    if (index === 0 && next > 0 && next * slot < 70) return; // primer día casi vacío: su etiqueta pisaría a la siguiente
+    labels.push(`<line class="chart-grid day" x1="${x}" x2="${x}" y1="${top}" y2="${top + innerHeight}"/>${tick(x + 4, chartDayFormat.format(at), "start")}`);
+  });
+  const bars = points.map((point, index) => {
+    const x = left + index * slot + (slot - barWidth) / 2; const mechanical = point.mechanical || 0; const electric = point.electric || 0;
+    return `<g class="chart-col" data-time="${formatDate(point.timestamp)}" data-mechanical="${formatNumber(mechanical)}" data-electric="${formatNumber(electric)}" data-free="${formatNumber(point.free_docks)}"><rect class="chart-hit" x="${left + index * slot}" y="${top}" width="${slot}" height="${innerHeight}"/><rect class="svg-electric" x="${x}" y="${y(mechanical + electric)}" width="${barWidth}" height="${y(mechanical) - y(mechanical + electric)}"/><rect class="svg-mechanical" x="${x}" y="${y(mechanical)}" width="${barWidth}" height="${y(0) - y(mechanical)}"/></g>`;
+  }).join("");
+  return `<p class="chart-readout" aria-live="polite">Pasa el cursor o toca una barra para ver el detalle</p><div class="chart-scroll"><svg class="stacked-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="Barras apiladas de bicicletas mecánicas y eléctricas disponibles a lo largo del periodo">${grid.join("")}${labels.join("")}${bars}</svg></div>`;
 }
 
-function donut(composition = {}) {
-  const values = [composition.mechanical_percent || 0, composition.electric_percent || 0, composition.free_docks_percent || 0]; const colors = ["#f47c42", "#8d6be8", "#94a3b8"]; let offset = 0; const circles = values.map((value, index) => { const circle = `<circle class="donut-segment" cx="21" cy="21" r="15" pathLength="100" stroke="${colors[index]}" stroke-dasharray="${value} ${100 - value}" stroke-dashoffset="${-offset}"/>`; offset += value; return circle; }).join(""); return `<div class="donut-wrap"><svg viewBox="0 0 42 42" class="donut" role="img" aria-label="Composición media de la estación"><circle class="donut-track" cx="21" cy="21" r="15" pathLength="100"/><g transform="rotate(-90 21 21)">${circles}</g><text x="21" y="22" text-anchor="middle">${formatNumber(values[0] + values[1], 0)}%</text></svg></div>`;
-}
+// Lectura al pasar el cursor o tocar (el <title> de SVG no sale en pantallas táctiles).
+document.addEventListener("pointerover", (event) => {
+  const cell = event.target.closest?.(".hm-cell");
+  if (cell) { const out = document.querySelector(".hm-readout"); if (out) out.textContent = cell.dataset.detail; return; }
+  const column = event.target.closest?.(".chart-col");
+  const out = document.querySelector(".chart-readout:not(.hm-readout)");
+  if (!column || !out) return;
+  document.querySelectorAll(".chart-col.on").forEach((node) => node.classList.remove("on"));
+  column.classList.add("on");
+  const { time, mechanical, electric, free } = column.dataset;
+  out.innerHTML = `<strong>${time}</strong> · <i class="legend-dot mechanical"></i>${mechanical} mecánicas <i class="legend-dot electric"></i>${electric} eléctricas · ${free} huecos libres`;
+});
 
 function savedView() {
   const saved = state.stations.filter((station) => state.favorites.has(station.station_id));
@@ -399,6 +478,8 @@ function render() {
   document.title = routeTitles[state.route] ?? routeTitles.map;
   const content = state.route === "history" ? historyView() : state.route === "saved" ? savedView() : state.route === "more" ? moreView() : mapView();
   document.querySelector("#app").innerHTML = shell(content); bindEvents();
+  // En móvil el gráfico es más ancho que la pantalla: se abre en lo más reciente, que es lo que se busca.
+  document.querySelectorAll(".history-page .chart-scroll").forEach((node) => { node.scrollLeft = node.scrollWidth; });
   analytics.trackPageView(state.route);
   if (state.route === "map") renderMapInstance();
   if (state.route === "history" && state.stations.length) loadHistory();
