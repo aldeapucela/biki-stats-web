@@ -2,11 +2,13 @@ import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 import "./styles.css";
 import "./history-overrides.css";
+import "./destination.css";
 import { api, ApiError } from "./api.js";
 import { createHistoryLoader } from "./history-loader.js";
 import { analytics } from "./analytics.js";
 import { bikesTone } from "./tone.js";
-import { navigate, setTheme, state, toggleFavorite } from "./state.js";
+import { navigate, setDestination, setTheme, state, toggleFavorite } from "./state.js";
+import { distanceMeters, docksDrop, estimateMinutes, recordSample } from "./destination.js";
 
 let map;
 let markers = [];
@@ -24,6 +26,16 @@ const routeFromLocation = () => {
 window.addEventListener("popstate", () => { state.route = routeFromLocation(); render(); });
 window.addEventListener("hashchange", () => { state.route = window.location.hash.slice(2) || "map"; render(); });
 window.addEventListener("storage", () => render());
+// Delegado: los popups de Leaflet se crean fuera de los listeners que enlaza bindEvents().
+document.addEventListener("click", (event) => {
+  const choose = event.target.closest?.("[data-destination]");
+  const clear = event.target.closest?.("[data-destination-clear]");
+  if (!choose && !clear) return;
+  const id = choose?.dataset.destination;
+  if (!id || id === state.destinationId) setDestination(null);
+  else { setDestination(id); destinationSamples = []; recordDestinationSample(); }
+  render();
+});
 
 const esc = (value) => String(value ?? "").replace(/[&<>'"]/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" }[char]));
 const formatAge = (seconds) => seconds == null ? "Sin fecha" : seconds < 60 ? "hace menos de 1 min" : `hace ${Math.floor(seconds / 60)} min`;
@@ -32,6 +44,11 @@ const occupancyTone = (value) => value == null ? "unknown" : value >= 75 ? "high
 const locationMessage = () => state.locationStatus === "requesting" ? "Solicitando ubicación…" : state.locationStatus === "available" ? "Ubicación activa" : state.locationStatus === "denied" ? "Ubicación no disponible" : "Cerca de mí";
 const currentStation = () => state.stations.find((station) => station.station_id === state.selectedStationId) || state.stations[0];
 const stationById = (stationId) => state.stations.find((station) => station.station_id === stationId);
+// Lecturas de huecos libres del destino en esta sesión, para avisar de una bajada reciente.
+let destinationSamples = [];
+const recordDestinationSample = () => { if (state.destinationId) destinationSamples = recordSample(destinationSamples, Date.now(), stationById(state.destinationId)?.free_docks); };
+const formatDistance = (meters) => (meters < 1000 ? `${Math.max(10, Math.round(meters / 10) * 10)} m` : `${formatNumber(meters / 1000, 1)} km`);
+const osmBikeUrl = (latitude, longitude) => `https://www.openstreetmap.org/directions?engine=fossgis_osrm_bike&route=%3B${latitude}%2C${longitude}`;
 // Un error de la API solo sustituye a la lista si no hay estaciones que mostrar; con datos cargados
 // se conserva la lista y se avisa aparte, sin bloquearla.
 const stationsUnavailable = () => Boolean(state.error) && !state.stations.length;
@@ -96,6 +113,7 @@ function stationCard(station, compact = false) {
     <div class="occupancy-row"><span class="status-dot ${tone}"></span><strong>${station.occupancy_percent == null ? "Sin ocupación" : `${formatNumber(station.occupancy_percent, 0)}% ocupada`}</strong><span class="capacity">${station.capacity == null ? "—" : `${formatNumber(station.capacity)} plazas`}</span></div>
     <div class="occupancy-bar"><span class="bar-fill ${tone}" style="width:${Math.min(100, station.occupancy_percent || 0)}%"></span></div>
     <div class="station-metrics"><span><i class="bike mechanical"></i>${formatNumber(station.bikes?.mechanical)} mecánicas</span><span><i class="bike electric"></i>${formatNumber(station.bikes?.electric)} eléctricas</span><span><i class="dock"></i>${formatNumber(station.free_docks)} libres</span></div>
+    <button type="button" class="destination-button" data-destination="${esc(station.station_id)}" aria-pressed="${state.destinationId === station.station_id}">${state.destinationId === station.station_id ? "Quitar destino" : "Voy a esta estación"}</button>
     ${compact ? "" : `<p class="freshness ${station.is_stale ? "stale" : ""}">${station.is_stale ? "Datos posiblemente obsoletos · " : "Actualizado "}${formatAge(station.data_age_seconds)}</p>`}
   </article>`;
 }
@@ -104,9 +122,9 @@ function stationTooltip(station) {
   const latitude = station.location?.latitude;
   const longitude = station.location?.longitude;
   const directionsUrl = latitude != null && longitude != null
-    ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(`${latitude},${longitude}`)}`
+    ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(`${latitude},${longitude}`)}&travelmode=bicycling`
     : null;
-  return `<div class="station-popup-content"><strong>${esc(station.name)}</strong><span>${station.occupancy_percent == null ? "Sin ocupación" : `${formatNumber(station.occupancy_percent, 0)}% ocupada`}</span><span>${formatNumber(station.bikes?.mechanical)} mecánicas · ${formatNumber(station.bikes?.electric)} eléctricas</span><span>${formatNumber(station.free_docks)} anclajes libres${station.capacity == null ? "" : ` de ${formatNumber(station.capacity)}`}</span>${directionsUrl ? `<a class="map-directions-button" href="${directionsUrl}" target="_blank" rel="noreferrer">Cómo llegar</a>` : ""}</div>`;
+  return `<div class="station-popup-content"><strong>${esc(station.name)}</strong><span>${station.occupancy_percent == null ? "Sin ocupación" : `${formatNumber(station.occupancy_percent, 0)}% ocupada`}</span><span>${formatNumber(station.bikes?.mechanical)} mecánicas · ${formatNumber(station.bikes?.electric)} eléctricas</span><span>${formatNumber(station.free_docks)} anclajes libres${station.capacity == null ? "" : ` de ${formatNumber(station.capacity)}`}</span><button type="button" class="destination-button" data-destination="${esc(station.station_id)}">${state.destinationId === station.station_id ? "Quitar destino" : "Voy a esta estación"}</button>${directionsUrl ? `<a class="map-directions-button" href="${directionsUrl}" target="_blank" rel="noreferrer">Cómo llegar</a><a class="map-directions-link" href="${osmBikeUrl(latitude, longitude)}" target="_blank" rel="noreferrer">En OpenStreetMap (bici)</a>` : ""}</div>`;
 }
 
 function filterStations() {
@@ -123,10 +141,30 @@ function mapLayout() {
   return `<div class="map-layout"><aside class="station-panel ${state.stationPanelExpanded ? "expanded" : "collapsed"}" aria-label="Lista de estaciones"><button type="button" class="station-panel-handle" data-panel-toggle aria-label="${state.stationPanelExpanded ? "Minimizar" : "Expandir"} listado de estaciones" aria-expanded="${state.stationPanelExpanded}"><span aria-hidden="true"></span></button><div class="search-wrap"><label for="station-search" class="sr-only">Buscar estación</label><span aria-hidden="true">⌕</span><input id="station-search" type="search" placeholder="Buscar por nombre" value="${esc(state.query)}" /></div><div class="filter-chips" role="group" aria-label="Filtros de ocupación">${[["all", "Todas"], ["electric", "Eléctricas"], ["low", "Poca ocupación"], ["high", "Muy ocupadas"]].map(([key, label]) => `<button class="chip ${state.filter === key ? "active" : ""}" data-filter="${key}">${label}</button>`).join("")}</div><div class="panel-status"><span>${filterStations().length} estaciones</span><span>${state.updatedAt ? `Consulta ${state.updatedAt.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}` : state.loading ? "Cargando…" : "Sin datos"}</span></div><div id="station-list" class="station-list">${state.loading ? loadingState() : filterStations().map((station) => stationCard(station)).join("") || emptyState("No hay estaciones que coincidan", "Prueba con otro nombre o filtro.")}</div></aside><div id="map" class="map-container" aria-label="Mapa de estaciones BIKI"></div></div>`;
 }
 
+function destinationCard() {
+  if (!state.destinationId || !state.stations.length) return "";
+  const station = stationById(state.destinationId);
+  if (!station) return `<section class="destination-card missing" aria-label="Estación destino"><p>La estación que elegiste ya no está disponible.</p><button type="button" class="secondary-button" data-destination-clear>Quitar destino</button></section>`;
+  const hasPosition = station.location?.latitude != null && station.location?.longitude != null;
+  const meters = state.userLocation && hasPosition ? distanceMeters(state.userLocation, station.location) : null;
+  const trip = meters != null
+    ? `A ${formatDistance(meters)} en línea recta · unos ${estimateMinutes(meters)} min en bici (estimado, no es una ruta)`
+    : state.geoDenied ? "Sin tu ubicación no se puede calcular la distancia." : `<button type="button" class="link-button" data-action="locate">Activar mi ubicación</button> para ver la distancia`;
+  const drop = docksDrop(destinationSamples);
+  const docks = station.free_docks;
+  return `<section class="destination-card" aria-label="Estación destino"><div class="destination-head"><div><p class="eyebrow">TU DESTINO</p><h2>${esc(station.name)}</h2></div><button type="button" class="secondary-button" data-destination-clear>Quitar destino</button></div>
+    <p class="destination-docks"><strong>${formatNumber(docks)}</strong> ${docks === 1 ? "hueco libre" : "huecos libres"} para dejar tu bici${station.capacity == null ? "" : ` de ${formatNumber(station.capacity)}`}</p>
+    <p class="destination-bikes">${formatNumber(station.bikes?.mechanical)} mecánicas · ${formatNumber(station.bikes?.electric)} eléctricas</p>
+    ${docks === 0 ? `<p class="destination-alert" role="status">Ahora mismo no queda ningún hueco libre.</p>` : ""}
+    ${drop ? `<p class="destination-alert" role="status">Los huecos bajan: ahora ${formatNumber(drop.to)}, hace ${drop.minutes} min había ${formatNumber(drop.from)}.</p>` : ""}
+    <p class="destination-trip">${trip}</p>
+    <p class="freshness ${station.is_stale ? "stale" : ""}">${station.is_stale ? "Datos posiblemente obsoletos · " : "Actualizado "}${formatAge(station.data_age_seconds)}</p></section>`;
+}
+
 function mapView() {
   return `<section class="page map-page"><div class="page-heading"><div><p class="eyebrow">VALLADOLID · INFORMACIÓN EN TIEMPO DIFERIDO</p><h1>Estaciones BIKI</h1><p class="lede">Consulta bicicletas y anclajes disponibles cerca de ti.</p></div><button class="secondary-button" data-action="locate" ${state.locationStatus === "requesting" ? "disabled" : ""}>⌖ ${locationMessage()}</button></div>
     ${panelNotice() ? `<p class="panel-notice" role="status">${esc(panelNotice())}</p>` : ""}
-    ${stationsUnavailable() ? `<div class="map-error">${errorState(state.error)}</div>` : mapLayout()}</section>`;
+    ${stationsUnavailable() ? `<div class="map-error">${errorState(state.error)}</div>` : `${destinationCard()}${mapLayout()}`}</section>`;
 }
 
 function historyView() {
@@ -195,6 +233,7 @@ async function loadStations(useLocation = false) {
     state.nearbyMode = useLocation;
     state.stations = response.data || [];
     state.updatedAt = new Date(); state.geoDenied = false;
+    recordDestinationSample();
   } catch (error) { state.error = apiError(error); } finally { state.loading = false; render(); }
 }
 
@@ -232,6 +271,7 @@ async function locateUser(manual = true) {
       state.stations = (response.data || []).sort((a, b) => (a.distance_m ?? Number.MAX_SAFE_INTEGER) - (b.distance_m ?? Number.MAX_SAFE_INTEGER));
       state.updatedAt = new Date();
       state.error = null;
+      recordDestinationSample();
     } catch (error) {
       // La ubicación funciona; el fallo es de la API y no debe presentarse como un problema de permisos.
       state.nearbyMode = false;
@@ -275,10 +315,13 @@ function renderMapInstance() {
   };
   legend.addTo(map);
   if (state.userLocation) L.circleMarker(center, { radius: 9, color: "#73579f", fillColor: "#b9a7d7", fillOpacity: 0.95, weight: 3, className: "user-location-marker" }).addTo(map).bindTooltip("Tu ubicación");
+  const destination = state.destinationId ? stationById(state.destinationId) : null;
+  const destinationAt = destination?.location?.latitude != null ? [destination.location.latitude, destination.location.longitude] : null;
+  if (destinationAt && state.userLocation) L.polyline([center, destinationAt], { className: "destination-line", interactive: false }).addTo(map);
   const visibleStations = filterStations();
   markers = visibleStations.filter((station) => station.location?.latitude != null).map((station) => {
     const selected = state.selectedStationId === station.station_id;
-    const marker = L.marker([station.location.latitude, station.location.longitude], { icon: L.divIcon({ className: `station-marker bikes-${bikesTone(station)}${selected ? " selected" : ""}`, html: `<span class="marker-values"><span class="marker-value mechanical">M ${formatNumber(station.bikes?.mechanical)}</span><span class="marker-value electric">E ${formatNumber(station.bikes?.electric)}</span></span>`, iconSize: [48, 44], iconAnchor: [24, 22] }) }).addTo(map).bindPopup(stationTooltip(station), { className: "station-popup", closeButton: true, autoClose: true, closeOnClick: true, maxWidth: 260 });
+    const marker = L.marker([station.location.latitude, station.location.longitude], { icon: L.divIcon({ className: `station-marker bikes-${bikesTone(station)}${selected ? " selected" : ""}${state.destinationId === station.station_id ? " destination" : ""}`, html: `<span class="marker-values"><span class="marker-value mechanical">M ${formatNumber(station.bikes?.mechanical)}</span><span class="marker-value electric">E ${formatNumber(station.bikes?.electric)}</span></span>`, iconSize: [48, 44], iconAnchor: [24, 22] }) }).addTo(map).bindPopup(stationTooltip(station), { className: "station-popup", closeButton: true, autoClose: true, closeOnClick: true, maxWidth: 260 });
     marker.stationId = station.station_id;
     marker.on("click", (event) => {
       L.DomEvent.stopPropagation(event);
@@ -301,6 +344,12 @@ function renderMapInstance() {
     },
   });
   new LocateControl({ position: "topright" }).addTo(map);
+  if (state.destinationFit && destinationAt) {
+    state.destinationFit = false;
+    // Solo al elegir el destino: como el mapa se recrea en cada refresco, encuadrar siempre pelearía con el usuario.
+    if (state.userLocation) map.fitBounds(L.latLngBounds([center, destinationAt]), { animate: false, padding: [60, 60], maxZoom: 17 });
+    else map.setView(destinationAt, Math.max(map.getZoom(), 16), { animate: false });
+  }
   setTimeout(() => map?.invalidateSize(), 50);
 }
 
@@ -352,8 +401,8 @@ function bindEvents() {
   }));
   document.querySelectorAll("[data-station]").forEach((card) => {
     const source = state.route === "saved" ? "saved" : "station_card";
-    card.addEventListener("click", () => selectStation(card.dataset.station, source));
-    card.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); selectStation(card.dataset.station, source); } });
+    card.addEventListener("click", (event) => { if (!event.target.closest("[data-destination]")) selectStation(card.dataset.station, source); });
+    card.addEventListener("keydown", (event) => { if (event.target.closest("button")) return; if (event.key === "Enter" || event.key === " ") { event.preventDefault(); selectStation(card.dataset.station, source); } });
   });
   document.querySelector("#history-station-search")?.addEventListener("input", (event) => {
     state.historyQuery = event.target.value;

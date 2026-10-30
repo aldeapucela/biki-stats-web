@@ -1,5 +1,6 @@
 const FAVORITES_KEY = "movilidad.favoriteStations";
 const THEME_KEY = "movilidad.theme";
+const DESTINATION_KEY = "movilidad.destinationStation";
 
 const readJson = (key, fallback) => {
   try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; }
@@ -16,6 +17,8 @@ export const state = {
   route: routeFromLocation(),
   stations: [],
   selectedStationId: null,
+  destinationId: readJson(DESTINATION_KEY, null),
+  destinationFit: false,
   favorites: new Set(readJson(FAVORITES_KEY, [])),
   theme: localStorage.getItem(THEME_KEY) || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"),
   query: "",
@@ -38,6 +41,11 @@ export const state = {
 
 export function persistFavorites() { localStorage.setItem(FAVORITES_KEY, JSON.stringify([...state.favorites])); }
 export function toggleFavorite(id) { state.favorites.has(id) ? state.favorites.delete(id) : state.favorites.add(id); persistFavorites(); }
+export function setDestination(id) {
+  state.destinationId = id;
+  state.destinationFit = Boolean(id);
+  try { id ? localStorage.setItem(DESTINATION_KEY, JSON.stringify(id)) : localStorage.removeItem(DESTINATION_KEY); } catch { /* sin almacenamiento: el destino dura lo que la sesión */ }
+}
 export function setTheme(theme) { state.theme = theme; localStorage.setItem(THEME_KEY, theme); document.documentElement.dataset.theme = theme; }
 export function navigate(route) {
   const path = route === "map" ? "/" : `/${route}`;
