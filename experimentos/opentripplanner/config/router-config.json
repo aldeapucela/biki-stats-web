@@ -1,0 +1,11 @@
+{
+  "updaters": [
+    {
+      "type": "vehicle-rental",
+      "sourceType": "gbfs",
+      "network": "biki",
+      "url": "https://valladolid.publicbikesystem.net/customer/gbfs/v3.0/gbfs.json",
+      "frequency": "1m"
+    }
+  ]
+}
