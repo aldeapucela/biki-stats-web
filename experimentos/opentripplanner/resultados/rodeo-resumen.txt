@@ -1,0 +1,19 @@
+pares: 5356 | segundos: 617.8
+
+[pie] válidos 5356 de 5356; errores 0
+  factor global: p5=1.08 p25=1.14 mediana=1.19 media=1.23 p75=1.28 p95=1.45
+  recta 0-500 m: n=123 mediana=1.29 p10=1.08 p90=1.48
+  recta 500-1000 m: n=393 mediana=1.26 p10=1.11 p90=1.49
+  recta 1000-2000 m: n=1134 mediana=1.23 p10=1.12 p90=1.40
+  recta 2000-4000 m: n=2150 mediana=1.20 p10=1.11 p90=1.36
+  recta 4000-99999 m: n=1556 mediana=1.15 p10=1.08 p90=1.31
+  velocidad implícita que usa OTP (distancia/tiempo, km/h): p10=4.3 mediana=4.5 p90=4.6
+
+[bici] válidos 5355 de 5356; errores 0
+  factor global: p5=1.14 p25=1.26 mediana=1.36 media=1.40 p75=1.49 p95=1.79
+  recta 0-500 m: n=123 mediana=1.44 p10=1.16 p90=2.16
+  recta 500-1000 m: n=393 mediana=1.44 p10=1.17 p90=1.96
+  recta 1000-2000 m: n=1134 mediana=1.42 p10=1.22 p90=1.77
+  recta 2000-4000 m: n=2150 mediana=1.38 p10=1.21 p90=1.64
+  recta 4000-99999 m: n=1555 mediana=1.28 p10=1.16 p90=1.50
+  velocidad implícita que usa OTP (distancia/tiempo, km/h): p10=11.2 mediana=13.2 p90=14.6
