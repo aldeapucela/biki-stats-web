@@ -3,12 +3,14 @@ import L from "leaflet";
 import "./styles.css";
 import "./history-overrides.css";
 import "./destination.css";
+import "./route.css";
 import { api, ApiError } from "./api.js";
 import { createHistoryLoader } from "./history-loader.js";
 import { analytics } from "./analytics.js";
 import { bikesTone } from "./tone.js";
-import { navigate, setDestination, setTheme, state, toggleFavorite } from "./state.js";
+import { navigate, setDestination, setOrigin, setTheme, state, toggleFavorite } from "./state.js";
 import { distanceMeters, docksDrop, estimateMinutes, recordSample } from "./destination.js";
+import { alternatives, countFor, formatClock, outlook, planRoute } from "./availability.js";
 
 let map;
 let markers = [];
@@ -28,6 +30,15 @@ window.addEventListener("hashchange", () => { state.route = window.location.hash
 window.addEventListener("storage", () => render());
 // Delegado: los popups de Leaflet se crean fuera de los listeners que enlaza bindEvents().
 document.addEventListener("click", (event) => {
+  const chooseOrigin = event.target.closest?.("[data-origin]");
+  const clearOrigin = event.target.closest?.("[data-origin-clear]");
+  if (chooseOrigin || clearOrigin) {
+    const originId = chooseOrigin?.dataset.origin;
+    setOrigin(!originId || originId === state.originId ? null : originId);
+    if (!state.destinationId) destinationSamples = [];
+    render();
+    return;
+  }
   const choose = event.target.closest?.("[data-destination]");
   const clear = event.target.closest?.("[data-destination-clear]");
   if (!choose && !clear) return;
@@ -105,6 +116,13 @@ function shell(content) {
   </div>`;
 }
 
+// «Recojo aquí» fija la estación de salida y «Voy a esta estación» la de llegada (#27); una estación no puede ser las dos.
+function routeButtons(station, pressed = false) {
+  const id = esc(station.station_id);
+  const isOrigin = state.originId === station.station_id; const isDestination = state.destinationId === station.station_id;
+  return `<div class="route-buttons"><button type="button" class="origin-button" data-origin="${id}"${pressed ? ` aria-pressed="${isOrigin}"` : ""}>${isOrigin ? "Quitar salida" : "Recojo aquí"}</button><button type="button" class="destination-button" data-destination="${id}"${pressed ? ` aria-pressed="${isDestination}"` : ""}>${isDestination ? "Quitar destino" : "Voy a esta estación"}</button></div>`;
+}
+
 function stationCard(station, compact = false) {
   const tone = occupancyTone(station.occupancy_percent);
   const favorite = state.favorites.has(station.station_id);
@@ -113,7 +131,7 @@ function stationCard(station, compact = false) {
     <div class="occupancy-row"><span class="status-dot ${tone}"></span><strong>${station.occupancy_percent == null ? "Sin ocupación" : `${formatNumber(station.occupancy_percent, 0)}% ocupada`}</strong><span class="capacity">${station.capacity == null ? "—" : `${formatNumber(station.capacity)} plazas`}</span></div>
     <div class="occupancy-bar"><span class="bar-fill ${tone}" style="width:${Math.min(100, station.occupancy_percent || 0)}%"></span></div>
     <div class="station-metrics"><span><i class="bike mechanical"></i>${formatNumber(station.bikes?.mechanical)} mecánicas</span><span><i class="bike electric"></i>${formatNumber(station.bikes?.electric)} eléctricas</span><span><i class="dock"></i>${formatNumber(station.free_docks)} libres</span></div>
-    <button type="button" class="destination-button" data-destination="${esc(station.station_id)}" aria-pressed="${state.destinationId === station.station_id}">${state.destinationId === station.station_id ? "Quitar destino" : "Voy a esta estación"}</button>
+    ${routeButtons(station, true)}
     ${compact ? "" : `<p class="freshness ${station.is_stale ? "stale" : ""}">${station.is_stale ? "Datos posiblemente obsoletos · " : "Actualizado "}${formatAge(station.data_age_seconds)}</p>`}
   </article>`;
 }
@@ -124,7 +142,7 @@ function stationTooltip(station) {
   const directionsUrl = latitude != null && longitude != null
     ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(`${latitude},${longitude}`)}&travelmode=bicycling`
     : null;
-  return `<div class="station-popup-content"><strong>${esc(station.name)}</strong><span>${station.occupancy_percent == null ? "Sin ocupación" : `${formatNumber(station.occupancy_percent, 0)}% ocupada`}</span><span>${formatNumber(station.bikes?.mechanical)} mecánicas · ${formatNumber(station.bikes?.electric)} eléctricas</span><span>${formatNumber(station.free_docks)} anclajes libres${station.capacity == null ? "" : ` de ${formatNumber(station.capacity)}`}</span><button type="button" class="destination-button" data-destination="${esc(station.station_id)}">${state.destinationId === station.station_id ? "Quitar destino" : "Voy a esta estación"}</button>${directionsUrl ? `<a class="map-directions-button" href="${directionsUrl}" target="_blank" rel="noreferrer">Cómo llegar</a><a class="map-directions-link" href="${osmBikeUrl(latitude, longitude)}" target="_blank" rel="noreferrer">En OpenStreetMap (bici)</a>` : ""}</div>`;
+  return `<div class="station-popup-content"><strong>${esc(station.name)}</strong><span>${station.occupancy_percent == null ? "Sin ocupación" : `${formatNumber(station.occupancy_percent, 0)}% ocupada`}</span><span>${formatNumber(station.bikes?.mechanical)} mecánicas · ${formatNumber(station.bikes?.electric)} eléctricas</span><span>${formatNumber(station.free_docks)} anclajes libres${station.capacity == null ? "" : ` de ${formatNumber(station.capacity)}`}</span>${routeButtons(station)}${directionsUrl ? `<a class="map-directions-button" href="${directionsUrl}" target="_blank" rel="noreferrer">Cómo llegar</a><a class="map-directions-link" href="${osmBikeUrl(latitude, longitude)}" target="_blank" rel="noreferrer">En OpenStreetMap (bici)</a>` : ""}</div>`;
 }
 
 function filterStations() {
@@ -141,30 +159,89 @@ function mapLayout() {
   return `<div class="map-layout"><aside class="station-panel ${state.stationPanelExpanded ? "expanded" : "collapsed"}" aria-label="Lista de estaciones"><button type="button" class="station-panel-handle" data-panel-toggle aria-label="${state.stationPanelExpanded ? "Minimizar" : "Expandir"} listado de estaciones" aria-expanded="${state.stationPanelExpanded}"><span aria-hidden="true"></span></button><div class="search-wrap"><label for="station-search" class="sr-only">Buscar estación</label><span aria-hidden="true">⌕</span><input id="station-search" type="search" placeholder="Buscar por nombre" value="${esc(state.query)}" /></div><div class="filter-chips" role="group" aria-label="Filtros de ocupación">${[["all", "Todas"], ["electric", "Eléctricas"], ["low", "Poca ocupación"], ["high", "Muy ocupadas"]].map(([key, label]) => `<button class="chip ${state.filter === key ? "active" : ""}" data-filter="${key}">${label}</button>`).join("")}</div><div class="panel-status"><span>${filterStations().length} estaciones</span><span>${state.updatedAt ? `Consulta ${state.updatedAt.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}` : state.loading ? "Cargando…" : "Sin datos"}</span></div><div id="station-list" class="station-list">${state.loading ? loadingState() : filterStations().map((station) => stationCard(station)).join("") || emptyState("No hay estaciones que coincidan", "Prueba con otro nombre o filtro.")}</div></aside><div id="map" class="map-container" aria-label="Mapa de estaciones BIKI"></div></div>`;
 }
 
-function destinationCard() {
-  if (!state.destinationId || !state.stations.length) return "";
-  const station = stationById(state.destinationId);
-  if (!station) return `<section class="destination-card missing" aria-label="Estación destino"><p>La estación que elegiste ya no está disponible.</p><button type="button" class="secondary-button" data-destination-clear>Quitar destino</button></section>`;
-  const hasPosition = station.location?.latitude != null && station.location?.longitude != null;
-  const meters = state.userLocation && hasPosition ? distanceMeters(state.userLocation, station.location) : null;
+const OUTLOOK_TEXT = {
+  bike: { sure: "Casi seguro que quedará alguna bici", likely: "Es probable que quede alguna bici", doubtful: "Dudoso que quede alguna bici", unlikely: "Poco probable que quede alguna bici" },
+  dock: { sure: "Casi seguro que habrá hueco", likely: "Es probable que haya hueco", doubtful: "Dudoso que haya hueco", unlikely: "Poco probable que haya hueco" },
+};
+const frequencyText = (kind, p) => {
+  const noun = kind === "bike" ? "bici" : "hueco";
+  if (p >= 0.95) return `Casi siempre hubo ${noun} en ocasiones parecidas`;
+  if (p < 0.05) return `Casi nunca hubo ${noun} en ocasiones parecidas`;
+  return `Hubo ${noun} en unas ${Math.min(9, Math.max(1, Math.round(p * 10)))} de cada 10 ocasiones parecidas`;
+};
+// Frecuencia histórica de que haya bici (salida) o hueco (llegada) a la hora en que se llegará, condicionada a lo que hay ahora.
+function outlookLine(kind, station, minutes) {
+  if (minutes == null) return "";
+  if (station.is_stale) return `<p class="route-outlook muted">Datos posiblemente obsoletos: sin estimación para tu llegada.</p>`;
+  const result = outlook(kind, countFor(kind, station), minutes);
+  if (!result.ok) {
+    const message = { far: "Falta más de 45 min: sin estimación.", few: `Sin datos suficientes para estimar a las ${result.arrival ? formatClock(result.arrival) : "esa hora"}.` }[result.reason];
+    return message ? `<p class="route-outlook muted">${message}</p>` : "";
+  }
+  return `<p class="route-outlook" data-level="${result.level}"><strong>${OUTLOOK_TEXT[kind][result.level]}</strong> cuando llegues (${formatClock(result.arrival)}, en unos ${minutes} min).<small>${frequencyText(kind, result.p)} (${formatNumber(result.n)} lecturas). Frecuencia histórica, no una previsión.</small></p>`;
+}
+// Ofrece las estaciones cercanas con disponibilidad cuando ahora no queda nada o la frecuencia a la llegada es dudosa o baja.
+function alternativesLine(kind, station, minutes) {
+  const count = countFor(kind, station);
+  const result = minutes != null && !station.is_stale ? outlook(kind, count, minutes) : { ok: false };
+  if (!(count === 0 || (result.ok && (result.level === "doubtful" || result.level === "unlikely")))) return "";
+  const list = alternatives(state.stations, kind, station.location, station.station_id);
+  if (!list.length) return "";
+  const attribute = kind === "bike" ? "data-origin" : "data-destination";
+  return `<p class="route-alt">Cerca con ${kind === "bike" ? "bicis" : "huecos"}: ${list.map(({ station: other, meters }) => `<button type="button" class="link-button" ${attribute}="${esc(other.station_id)}">${esc(other.name)}</button> (${formatDistance(meters)})`).join(" · ")}</p>`;
+}
+const freshnessLine = (station) => `<p class="freshness ${station.is_stale ? "stale" : ""}">${station.is_stale ? "Datos posiblemente obsoletos · " : "Actualizado "}${formatAge(station.data_age_seconds)}</p>`;
+const missingLeg = (clearAttribute, label) => `<div class="route-leg missing"><p>La estación que elegiste ya no está disponible.</p><button type="button" class="secondary-button" ${clearAttribute}>${label}</button></div>`;
+
+function originLeg(station, plan) {
+  if (!station) return missingLeg("data-origin-clear", "Quitar salida");
+  const bikes = countFor("bike", station);
+  const meters = state.userLocation && station.location?.latitude != null ? distanceMeters(state.userLocation, station.location) : null;
   const trip = meters != null
-    ? `A ${formatDistance(meters)} en línea recta · unos ${estimateMinutes(meters)} min en bici (estimado, no es una ruta)`
+    ? `A ${formatDistance(meters)} en línea recta · unos ${plan.walk} min andando (estimado, no es una ruta)`
+    : state.geoDenied ? "Sin tu ubicación no se puede calcular cuánto tardas en llegar." : `<button type="button" class="link-button" data-action="locate">Activar mi ubicación</button> para ver cuánto tardas en llegar`;
+  return `<div class="route-leg origin-leg"><div class="destination-head"><div><p class="eyebrow">1 · DONDE RECOJO LA BICI</p><h3>${esc(station.name)}</h3></div><button type="button" class="secondary-button" data-origin-clear>Quitar salida</button></div>
+    <p class="origin-bikes"><strong>${formatNumber(bikes)}</strong> ${bikes === 1 ? "bici" : "bicis"} ahora <span>(${formatNumber(station.bikes?.mechanical)} mecánicas · ${formatNumber(station.bikes?.electric)} eléctricas)</span></p>
+    ${bikes === 0 ? `<p class="destination-alert" role="status">Ahora mismo no queda ninguna bici.</p>` : ""}
+    ${outlookLine("bike", station, plan.pickup)}${alternativesLine("bike", station, plan.pickup)}
+    <p class="destination-trip">${trip}</p>${freshnessLine(station)}</div>`;
+}
+
+function destinationLeg(station, plan, origin) {
+  if (!station) return missingLeg("data-destination-clear", "Quitar destino");
+  const hasPosition = station.location?.latitude != null && station.location?.longitude != null;
+  const from = origin?.location?.latitude != null ? origin.location : state.userLocation;
+  const meters = from && hasPosition ? distanceMeters(from, station.location) : null;
+  const trip = meters != null
+    ? `${origin ? "De la salida al destino:" : "A"} ${formatDistance(meters)} en línea recta · unos ${plan.ride} min en bici (estimado, no es una ruta)`
     : state.geoDenied ? "Sin tu ubicación no se puede calcular la distancia." : `<button type="button" class="link-button" data-action="locate">Activar mi ubicación</button> para ver la distancia`;
   const drop = docksDrop(destinationSamples);
   const docks = station.free_docks;
-  return `<section class="destination-card" aria-label="Estación destino"><div class="destination-head"><div><p class="eyebrow">TU DESTINO</p><h2>${esc(station.name)}</h2></div><button type="button" class="secondary-button" data-destination-clear>Quitar destino</button></div>
+  const arrival = plan.drop != null ? new Date(Date.now() + plan.drop * 60_000) : null;
+  return `<div class="route-leg destination-leg"><div class="destination-head"><div><p class="eyebrow">${origin || state.originId ? "2 · DONDE LA DEJO" : "TU DESTINO"}</p><h2>${esc(station.name)}</h2></div><button type="button" class="secondary-button" data-destination-clear>Quitar destino</button></div>
     <p class="destination-docks"><strong>${formatNumber(docks)}</strong> ${docks === 1 ? "hueco libre" : "huecos libres"} para dejar tu bici${station.capacity == null ? "" : ` de ${formatNumber(station.capacity)}`}</p>
     <p class="destination-bikes">${formatNumber(station.bikes?.mechanical)} mecánicas · ${formatNumber(station.bikes?.electric)} eléctricas</p>
     ${docks === 0 ? `<p class="destination-alert" role="status">Ahora mismo no queda ningún hueco libre.</p>` : ""}
     ${drop ? `<p class="destination-alert" role="status">Los huecos bajan: ahora ${formatNumber(drop.to)}, hace ${drop.minutes} min había ${formatNumber(drop.from)}.</p>` : ""}
+    ${outlookLine("dock", station, plan.drop)}${alternativesLine("dock", station, plan.drop)}
     <p class="destination-trip">${trip}</p>
-    <p class="freshness ${station.is_stale ? "stale" : ""}">${station.is_stale ? "Datos posiblemente obsoletos · " : "Actualizado "}${formatAge(station.data_age_seconds)}</p></section>`;
+    ${origin && arrival ? `<p class="route-total">Llegarías a dejarla sobre las ${formatClock(arrival)} (en unos ${plan.drop} min).</p>` : ""}
+    ${freshnessLine(station)}</div>`;
+}
+
+function routeCard() {
+  if ((!state.originId && !state.destinationId) || !state.stations.length) return "";
+  const origin = state.originId ? stationById(state.originId) : null;
+  const destination = state.destinationId ? stationById(state.destinationId) : null;
+  const plan = planRoute({ user: state.userLocation, origin, destination });
+  const alone = !state.originId && !destination;
+  return `<section class="destination-card ${state.originId ? "with-origin" : ""} ${alone ? "missing" : ""}" aria-label="${state.originId ? "Tu ruta" : "Estación destino"}">${state.originId ? originLeg(origin, plan) : ""}${state.destinationId ? destinationLeg(destination, plan, origin) : `<p class="route-hint">Elige en el mapa o en la lista dónde la dejas con «Voy a esta estación».</p>`}</section>`;
 }
 
 function mapView() {
   return `<section class="page map-page"><div class="page-heading"><div><p class="eyebrow">VALLADOLID · INFORMACIÓN EN TIEMPO DIFERIDO</p><h1>Estaciones BIKI</h1><p class="lede">Consulta bicicletas y anclajes disponibles cerca de ti.</p></div><button class="secondary-button" data-action="locate" ${state.locationStatus === "requesting" ? "disabled" : ""}>⌖ ${locationMessage()}</button></div>
     ${panelNotice() ? `<p class="panel-notice" role="status">${esc(panelNotice())}</p>` : ""}
-    ${stationsUnavailable() ? `<div class="map-error">${errorState(state.error)}</div>` : `${destinationCard()}${mapLayout()}`}</section>`;
+    ${stationsUnavailable() ? `<div class="map-error">${errorState(state.error)}</div>` : `${routeCard()}${mapLayout()}`}</section>`;
 }
 
 function historyView() {
@@ -315,13 +392,17 @@ function renderMapInstance() {
   };
   legend.addTo(map);
   if (state.userLocation) L.circleMarker(center, { radius: 9, color: "#73579f", fillColor: "#b9a7d7", fillOpacity: 0.95, weight: 3, className: "user-location-marker" }).addTo(map).bindTooltip("Tu ubicación");
-  const destination = state.destinationId ? stationById(state.destinationId) : null;
-  const destinationAt = destination?.location?.latitude != null ? [destination.location.latitude, destination.location.longitude] : null;
-  if (destinationAt && state.userLocation) L.polyline([center, destinationAt], { className: "destination-line", interactive: false }).addTo(map);
+  const positionOf = (station) => (station?.location?.latitude != null && station.location.longitude != null ? [station.location.latitude, station.location.longitude] : null);
+  const originAt = positionOf(state.originId ? stationById(state.originId) : null);
+  const destinationAt = positionOf(state.destinationId ? stationById(state.destinationId) : null);
+  // Andando hasta la salida (punteada fina) y en bici de la salida al destino (la línea de la #27); sin salida, del usuario al destino.
+  if (state.userLocation && originAt) L.polyline([center, originAt], { className: "route-walk-line", interactive: false }).addTo(map);
+  if (originAt && destinationAt) L.polyline([originAt, destinationAt], { className: "destination-line", interactive: false }).addTo(map);
+  else if (destinationAt && state.userLocation && !state.originId) L.polyline([center, destinationAt], { className: "destination-line", interactive: false }).addTo(map);
   const visibleStations = filterStations();
   markers = visibleStations.filter((station) => station.location?.latitude != null).map((station) => {
     const selected = state.selectedStationId === station.station_id;
-    const marker = L.marker([station.location.latitude, station.location.longitude], { icon: L.divIcon({ className: `station-marker bikes-${bikesTone(station)}${selected ? " selected" : ""}${state.destinationId === station.station_id ? " destination" : ""}`, html: `<span class="marker-values"><span class="marker-value mechanical">M ${formatNumber(station.bikes?.mechanical)}</span><span class="marker-value electric">E ${formatNumber(station.bikes?.electric)}</span></span>`, iconSize: [48, 44], iconAnchor: [24, 22] }) }).addTo(map).bindPopup(stationTooltip(station), { className: "station-popup", closeButton: true, autoClose: true, closeOnClick: true, maxWidth: 260 });
+    const marker = L.marker([station.location.latitude, station.location.longitude], { icon: L.divIcon({ className: `station-marker bikes-${bikesTone(station)}${selected ? " selected" : ""}${state.destinationId === station.station_id ? " destination" : ""}${state.originId === station.station_id ? " origin" : ""}`, html: `<span class="marker-values"><span class="marker-value mechanical">M ${formatNumber(station.bikes?.mechanical)}</span><span class="marker-value electric">E ${formatNumber(station.bikes?.electric)}</span></span>`, iconSize: [48, 44], iconAnchor: [24, 22] }) }).addTo(map).bindPopup(stationTooltip(station), { className: "station-popup", closeButton: true, autoClose: true, closeOnClick: true, maxWidth: 260 });
     marker.stationId = station.station_id;
     marker.on("click", (event) => {
       L.DomEvent.stopPropagation(event);
@@ -344,11 +425,12 @@ function renderMapInstance() {
     },
   });
   new LocateControl({ position: "topright" }).addTo(map);
-  if (state.destinationFit && destinationAt) {
+  if (state.destinationFit && (originAt || destinationAt)) {
     state.destinationFit = false;
-    // Solo al elegir el destino: como el mapa se recrea en cada refresco, encuadrar siempre pelearía con el usuario.
-    if (state.userLocation) map.fitBounds(L.latLngBounds([center, destinationAt]), { animate: false, padding: [60, 60], maxZoom: 17 });
-    else map.setView(destinationAt, Math.max(map.getZoom(), 16), { animate: false });
+    // Solo al elegir salida o destino: como el mapa se recrea en cada refresco, encuadrar siempre pelearía con el usuario.
+    const points = [state.userLocation ? center : null, originAt, destinationAt].filter(Boolean);
+    if (points.length > 1) map.fitBounds(L.latLngBounds(points), { animate: false, padding: [60, 60], maxZoom: 17 });
+    else map.setView(points[0], Math.max(map.getZoom(), 16), { animate: false });
   }
   setTimeout(() => map?.invalidateSize(), 50);
 }
@@ -401,7 +483,7 @@ function bindEvents() {
   }));
   document.querySelectorAll("[data-station]").forEach((card) => {
     const source = state.route === "saved" ? "saved" : "station_card";
-    card.addEventListener("click", (event) => { if (!event.target.closest("[data-destination]")) selectStation(card.dataset.station, source); });
+    card.addEventListener("click", (event) => { if (!event.target.closest("[data-destination], [data-origin]")) selectStation(card.dataset.station, source); });
     card.addEventListener("keydown", (event) => { if (event.target.closest("button")) return; if (event.key === "Enter" || event.key === " ") { event.preventDefault(); selectStation(card.dataset.station, source); } });
   });
   document.querySelector("#history-station-search")?.addEventListener("input", (event) => {
