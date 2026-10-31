@@ -116,11 +116,11 @@ function shell(content) {
   </div>`;
 }
 
-// «Cojo aquí» fija la estación de salida y «Voy a esta estación» la de llegada (#27); una estación no puede ser las dos.
+// «Recojo aquí» fija la estación de salida y «Voy a esta estación» la de llegada (#27); una estación no puede ser las dos.
 function routeButtons(station, pressed = false) {
   const id = esc(station.station_id);
   const isOrigin = state.originId === station.station_id; const isDestination = state.destinationId === station.station_id;
-  return `<div class="route-buttons"><button type="button" class="origin-button" data-origin="${id}"${pressed ? ` aria-pressed="${isOrigin}"` : ""}>${isOrigin ? "Quitar salida" : "Cojo aquí"}</button><button type="button" class="destination-button" data-destination="${id}"${pressed ? ` aria-pressed="${isDestination}"` : ""}>${isDestination ? "Quitar destino" : "Voy a esta estación"}</button></div>`;
+  return `<div class="route-buttons"><button type="button" class="origin-button" data-origin="${id}"${pressed ? ` aria-pressed="${isOrigin}"` : ""}>${isOrigin ? "Quitar salida" : "Recojo aquí"}</button><button type="button" class="destination-button" data-destination="${id}"${pressed ? ` aria-pressed="${isDestination}"` : ""}>${isDestination ? "Quitar destino" : "Voy a esta estación"}</button></div>`;
 }
 
 function stationCard(station, compact = false) {
@@ -200,7 +200,7 @@ function originLeg(station, plan) {
   const trip = meters != null
     ? `A ${formatDistance(meters)} en línea recta · unos ${plan.walk} min andando (estimado, no es una ruta)`
     : state.geoDenied ? "Sin tu ubicación no se puede calcular cuánto tardas en llegar." : `<button type="button" class="link-button" data-action="locate">Activar mi ubicación</button> para ver cuánto tardas en llegar`;
-  return `<div class="route-leg origin-leg"><div class="destination-head"><div><p class="eyebrow">1 · DONDE COJO LA BICI</p><h3>${esc(station.name)}</h3></div><button type="button" class="secondary-button" data-origin-clear>Quitar salida</button></div>
+  return `<div class="route-leg origin-leg"><div class="destination-head"><div><p class="eyebrow">1 · DONDE RECOJO LA BICI</p><h3>${esc(station.name)}</h3></div><button type="button" class="secondary-button" data-origin-clear>Quitar salida</button></div>
     <p class="origin-bikes"><strong>${formatNumber(bikes)}</strong> ${bikes === 1 ? "bici" : "bicis"} ahora <span>(${formatNumber(station.bikes?.mechanical)} mecánicas · ${formatNumber(station.bikes?.electric)} eléctricas)</span></p>
     ${bikes === 0 ? `<p class="destination-alert" role="status">Ahora mismo no queda ninguna bici.</p>` : ""}
     ${outlookLine("bike", station, plan.pickup)}${alternativesLine("bike", station, plan.pickup)}

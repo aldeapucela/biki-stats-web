@@ -4,7 +4,7 @@ Cómo se obtiene el «Es probable que haya hueco» del modo «En ruta» (issue [
 
 ## Qué se muestra
 
-Para la estación donde se coge la bici y para la que se deja, la tarjeta de ruta enseña dos cosas distintas:
+Para la estación donde se recoge la bici y para la que se deja, la tarjeta de ruta enseña dos cosas distintas:
 
 1. **Lo de ahora**: bicis (mecánicas y eléctricas) o huecos libres, tal como los da la API.
 2. **Una frecuencia histórica a la hora de llegada**: de las veces en que, **en el mismo tipo de día, en la misma franja horaria y con tantas bicis (o huecos) como hay ahora**, hubo bici (o hueco) pasados 10, 20, 30 o 45 minutos. Se enseña en cuatro tramos (casi seguro, probable, dudoso, poco probable) y con el número de lecturas.

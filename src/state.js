@@ -46,7 +46,7 @@ export function toggleFavorite(id) { state.favorites.has(id) ? state.favorites.d
 const persist = (key, id) => {
   try { id ? localStorage.setItem(key, JSON.stringify(id)) : localStorage.removeItem(key); } catch { /* sin almacenamiento: dura lo que la sesión */ }
 };
-// Una estación no puede ser a la vez donde se coge y donde se deja: elegirla en un extremo la quita del otro.
+// Una estación no puede ser a la vez donde se recoge y donde se deja: elegirla en un extremo la quita del otro.
 export function setDestination(id) {
   if (id && id === state.originId) setOrigin(null);
   state.destinationId = id;

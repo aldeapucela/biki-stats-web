@@ -7,7 +7,7 @@
 
 ## Resumen verificable de la issue
 
-El usuario elige dónde coge la bici y dónde la deja. La app muestra, para cada extremo, si hay bici o hueco **ahora**, y qué frecuencia histórica hay de que lo haya **a la hora en que llegará**, con el número de lecturas. Si el destino se queda sin huecos (o el origen sin bicis) sugiere la estación cercana con disponibilidad.
+El usuario elige dónde recoge la bici y dónde la deja. La app muestra, para cada extremo, si hay bici o hueco **ahora**, y qué frecuencia histórica hay de que lo haya **a la hora en que llegará**, con el número de lecturas. Si el destino se queda sin huecos (o el origen sin bicis) sugiere la estación cercana con disponibilidad.
 
 ## Alcance y exclusiones
 
@@ -15,7 +15,7 @@ Dentro:
 - `src/availability.js` (puro): tipo de día, franja, horizonte, consulta a la tabla, niveles, tiempos de la ruta y alternativas.
 - `src/availability-table.json`: tabla generada con `scripts/build-availability.py` (estado ahora × franja × tipo de día × horizonte).
 - `scripts/build-availability.py` y `docs/MEDICION_DISPONIBILIDAD.md`: cómo se genera la tabla y qué mide.
-- `state.js` (`originId` persistido), botón «Cojo aquí», tarjeta «Tu ruta», marcador de origen, línea de ruta.
+- `state.js` (`originId` persistido), botón «Recojo aquí», tarjeta «Tu ruta», marcador de origen, línea de ruta.
 - Tests vitest y e2e; capturas antes y después.
 
 Fuera: endpoint en `core` (la medición muestra que no hace falta para empezar), ruta real calle a calle, meteorología y eventos, calendario de festivos locales.
@@ -32,7 +32,7 @@ Resultado resumido, con 104 estaciones, 29-sep a 31-oct-2026: la frecuencia por 
 | Mínimo de lecturas | 300 por celda; por debajo, «sin datos suficientes» | Resuelta (medida) |
 | Dónde vive la tabla | Fichero estático en el repo regenerable con un script; el endpoint de `core` queda como paso posterior | Resuelta |
 | Horizontes | 10, 20, 30 y 45 min; se usa el primero que cubre el tiempo hasta la llegada; más allá de 45 min no se estima | Resuelta |
-| Estado «ahora» de la tabla | 0, 1, 2 y 3 o más (bicis para coger, huecos para dejar) | Resuelta (medida) |
+| Estado «ahora» de la tabla | 0, 1, 2 y 3 o más (bicis para recoger, huecos para dejar) | Resuelta (medida) |
 | Alternativa si falla un extremo | Las 2 estaciones más cercanas con 3 o más (bicis o huecos) ahora; sin radio fijo | Resuelta |
 | Velocidad andando | 5 km/h con el mismo factor de rodeo 1,3 de la #27. Supuesto NO medido | Abierta (rotulado como estimación) |
 | Festivos | Festivos nacionales de fecha fija cuentan como domingo; sin calendario local ni festivos móviles. La muestra solo tiene un festivo | Abierta (se dice en la app y en la PR) |

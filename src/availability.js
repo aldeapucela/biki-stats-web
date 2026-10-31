@@ -80,7 +80,7 @@ export function walkMinutes(straightMeters) {
  * Tiempos de la ruta. `origin` y `destination` son estaciones (o null); `user` es { latitude, longitude } o null.
  * Sin ubicación se supone que se sale ya de la estación de origen. Sin origen se supone que ya se tiene la bici
  * y se sale de la ubicación del usuario, como en la tarjeta de destino de la #27.
- * Devuelve minutos hasta coger (pickup) y hasta dejar (drop); null si no se pueden calcular.
+ * Devuelve minutos hasta recoger (pickup) y hasta dejar (drop); null si no se pueden calcular.
  */
 export function planRoute({ user, origin, destination }) {
   const at = (station) => (station?.location?.latitude != null && station.location.longitude != null ? station.location : null);

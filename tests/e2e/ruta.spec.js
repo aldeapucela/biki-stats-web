@@ -43,7 +43,7 @@ test("se elige la estación de salida desde el popup y la tarjeta muestra las bi
   await expect(leg).toBeVisible();
   await expect(leg.locator("h3")).toHaveText(name);
   await expect(leg.locator(".origin-bikes")).toContainText(/\d+\s+bicis?\s+ahora/);
-  await expect(leg).toContainText("DONDE COJO LA BICI");
+  await expect(leg).toContainText("DONDE RECOJO LA BICI");
   // Con solo salida elegida se pide el destino y se ve la marca en el mapa.
   await expect(page.locator(".route-hint")).toContainText("Voy a esta estación");
   await expect(page.locator(".station-marker.origin")).toHaveCount(1);

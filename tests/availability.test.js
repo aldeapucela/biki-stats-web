@@ -144,7 +144,7 @@ describe("walkMinutes y planRoute", () => {
     expect(walkMinutes(10)).toBe(1);
   });
 
-  it("con origen, destino y ubicación: andar hasta coger, pedalear hasta dejar y sumar", () => {
+  it("con origen, destino y ubicación: andar hasta recoger, pedalear hasta dejar y sumar", () => {
     const route = planRoute({ user, origin, destination });
     expect(route.walk).toBe(16);
     expect(route.ride).toBe(6);
