@@ -1,6 +1,7 @@
 const FAVORITES_KEY = "movilidad.favoriteStations";
 const THEME_KEY = "movilidad.theme";
 const DESTINATION_KEY = "movilidad.destinationStation";
+const ORIGIN_KEY = "movilidad.originStation";
 
 const readJson = (key, fallback) => {
   try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; }
@@ -17,6 +18,7 @@ export const state = {
   route: routeFromLocation(),
   stations: [],
   selectedStationId: null,
+  originId: readJson(ORIGIN_KEY, null),
   destinationId: readJson(DESTINATION_KEY, null),
   destinationFit: false,
   favorites: new Set(readJson(FAVORITES_KEY, [])),
@@ -41,10 +43,21 @@ export const state = {
 
 export function persistFavorites() { localStorage.setItem(FAVORITES_KEY, JSON.stringify([...state.favorites])); }
 export function toggleFavorite(id) { state.favorites.has(id) ? state.favorites.delete(id) : state.favorites.add(id); persistFavorites(); }
+const persist = (key, id) => {
+  try { id ? localStorage.setItem(key, JSON.stringify(id)) : localStorage.removeItem(key); } catch { /* sin almacenamiento: dura lo que la sesión */ }
+};
+// Una estación no puede ser a la vez donde se coge y donde se deja: elegirla en un extremo la quita del otro.
 export function setDestination(id) {
+  if (id && id === state.originId) setOrigin(null);
   state.destinationId = id;
   state.destinationFit = Boolean(id);
-  try { id ? localStorage.setItem(DESTINATION_KEY, JSON.stringify(id)) : localStorage.removeItem(DESTINATION_KEY); } catch { /* sin almacenamiento: el destino dura lo que la sesión */ }
+  persist(DESTINATION_KEY, id);
+}
+export function setOrigin(id) {
+  if (id && id === state.destinationId) setDestination(null);
+  state.originId = id;
+  state.destinationFit = Boolean(id);
+  persist(ORIGIN_KEY, id);
 }
 export function setTheme(theme) { state.theme = theme; localStorage.setItem(THEME_KEY, theme); document.documentElement.dataset.theme = theme; }
 export function navigate(route) {
