@@ -69,3 +69,12 @@ test("la leyenda es visible, está dentro del mapa y no tapa los controles", asy
   expect(medidas.zoom).toBe(false);
   expect(medidas.hoja).toBe(false);
 });
+
+test("el mapa base va en grises para que sus colores no se confundan con los de los marcadores", async ({ page }) => {
+  await page.goto("/");
+  await page.waitForSelector(".station-marker");
+  const filtro = await page.locator(".leaflet-tile-pane").evaluate((el) => getComputedStyle(el).filter);
+  expect(filtro).toContain("grayscale(1)");
+  // Los marcadores no deben heredar el filtro: van en otro panel.
+  expect(await page.locator(".leaflet-marker-pane").evaluate((el) => getComputedStyle(el).filter)).toBe("none");
+});

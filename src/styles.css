@@ -82,6 +82,8 @@ h3 { margin-bottom: 3px; font-size: 1rem; letter-spacing: -.02em; }
 .station-marker.bikes-ok-mid { --tone: var(--ap-ok-mid); --tone-ink: var(--ap-ok-mid-ink); }
 .station-marker.bikes-ok-high { --tone: var(--ap-ok-high); }
 .station-marker.bikes-unknown { --tone: #667085; }
+/* Mapa base en grises: así los colores del mapa no se confunden con los de los marcadores. */
+.map-container .leaflet-tile-pane { filter: grayscale(1) brightness(1.06) contrast(.9); }
 .map-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin: 0 0 12px 12px !important; padding: 7px 10px; border: 1px solid #e3e6ec; border-radius: 12px; background: #fffffff2; box-shadow: 0 4px 14px #20212a30; color: #27272a; font-size: .68rem; font-weight: 650; }
 .map-legend span { display: inline-flex; align-items: center; gap: 4px; }
 .map-legend .marker-value { min-width: 22px; padding: 1px 5px; border: 1px solid #20212a30; }
