@@ -2,6 +2,7 @@ import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 import "./styles.css";
 import "./history-overrides.css";
+import "./marca.css";
 import { api, ApiError } from "./api.js";
 import { createHistoryLoader } from "./history-loader.js";
 import { analytics } from "./analytics.js";
@@ -77,7 +78,7 @@ function shell(content) {
   const routeHref = (route) => route === "map" ? "/" : `/${route}`;
   return `<div class="app-shell">
     <header class="topbar">
-      <a class="brand" href="/" data-route="map" aria-label="Movilidad BIKI, ir al mapa"><span class="brand-mark">●</span><span>Movilidad <strong>· BIKI</strong></span></a>
+      <a class="brand" href="/" data-route="map" aria-label="Movilidad BIKI, ir al mapa"><span class="brand-mark"><img src="/aldea-pucela.jpg" alt="" width="32" height="32" /></span><span>Movilidad <strong>· BIKI</strong></span></a>
       <nav class="top-nav" aria-label="Navegación principal">${links.map(([route, label]) => `<a class="top-nav-link ${state.route === route ? "active" : ""}" href="${routeHref(route)}" data-route="${route}" aria-current="${state.route === route ? "page" : "false"}">${label}</a>`).join("")}</nav>
       <div class="top-actions"><span class="dev-badge ${api.useFixtures ? "" : "hidden"}">DATOS SIMULADOS</span><button class="icon-button" data-action="theme" aria-label="Cambiar tema">${state.theme === "dark" ? "☀" : "☾"}</button></div>
     </header>

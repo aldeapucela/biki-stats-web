@@ -1,0 +1,16 @@
+/* Identidad de Aldea Pucela (mismos tokens que vivienda.aldeapucela.org). Solo cambia lo que es marca:
+   los colores que significan datos (semáforo de bicis, mecánica, ocupación) siguen como estaban. */
+:root { --acento: #6b4895; --acento-fuerte: #5b3a86; --acento-fondo: #efe9f7; --acento-borde: #d8c9ee; --papel: #f7f6fa; --accent-strong: #5b3a86; --accent-strong-hover: #4a2f70; }
+[data-theme="dark"] { --acento: #c2aee4; --acento-fuerte: #d8c9ee; --acento-fondo: #241f30; --acento-borde: #3d3357; --papel: #100e16; --accent-strong: #d8c9ee; --accent-strong-hover: #c2aee4; }
+:root:not([data-theme]) { background: var(--papel); }
+body { background: var(--papel); }
+.brand { gap: 10px; }
+.brand strong, .eyebrow, .top-nav-link:hover, .top-nav-link.active, .nav-link.active, .favorite-button:hover { color: var(--acento); }
+.brand-mark { width: 32px; height: 32px; overflow: hidden; border-radius: 8px; background: transparent; font-size: 0; }
+.brand-mark img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.secondary-button:hover, .secondary-button:focus-visible, .search-wrap:focus-within, .history-combobox-input:focus-within { border-color: var(--acento); outline-color: color-mix(in srgb, var(--acento) 25%, transparent); }
+.chip.active, .period-tab.active, [data-theme="dark"] .chip.active, [data-theme="dark"] .period-tab.active { border-color: var(--acento); background: var(--acento-fondo); color: var(--acento-fuerte); }
+.primary-button:hover, .primary-button:focus-visible { outline-color: color-mix(in srgb, var(--acento) 40%, transparent); }
+[data-theme="dark"] .primary-button, [data-theme="dark"] .leaflet-container .map-directions-button, [data-theme="dark"] .leaflet-container .map-directions-button:hover, [data-theme="dark"] .leaflet-container .map-directions-button:focus-visible { border-color: var(--accent-strong); background: var(--accent-strong); color: #151021; }
+[data-theme="dark"] .primary-button:hover, [data-theme="dark"] .leaflet-container .map-directions-button:hover { background: var(--accent-strong-hover); }
+h1 { font-weight: 650; }
