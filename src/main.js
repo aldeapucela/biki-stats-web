@@ -269,7 +269,7 @@ function renderMapInstance() {
     const el = L.DomUtil.create("div", "map-legend");
     el.setAttribute("role", "group");
     el.setAttribute("aria-label", "Leyenda del mapa");
-    el.innerHTML = `<span><b class="marker-value mechanical">M</b>mecánica</span><span><b class="marker-value electric">E</b>eléctrica</span><span><i class="bikes-ok"></i>4 o más bicis</span><span><i class="bikes-few"></i>1 a 3</span><span><i class="bikes-none"></i>0</span>`;
+    el.innerHTML = `<span><b class="marker-value mechanical">M</b>mecánica</span><span><b class="marker-value electric">E</b>eléctrica</span><span><i class="bikes-none"></i>sin bicis</span><span><i class="bikes-partial"></i>falta un tipo</span><span class="legend-greens"><i class="bikes-ok-low"></i><i class="bikes-ok-mid"></i><i class="bikes-ok-high"></i>de las dos: 1, 2–3, 4 o más</span>`;
     L.DomEvent.disableClickPropagation(el);
     return el;
   };
