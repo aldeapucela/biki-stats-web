@@ -1,0 +1,23 @@
+{
+  "name": "BIKI Aldea Pucela",
+  "short_name": "BIKI Aldea Pucela",
+  "description": "Estado e histórico de las estaciones BIKI de Valladolid.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#ffffff",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

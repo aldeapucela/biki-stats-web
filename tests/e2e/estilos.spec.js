@@ -15,15 +15,15 @@ const contrast = (a, b) => {
 
 test("el título del documento cambia con la ruta", async ({ page }) => {
   await page.goto("/");
-  await expect(page).toHaveTitle("Movilidad · BIKI Valladolid");
+  await expect(page).toHaveTitle("BIKI Aldea Pucela · Valladolid");
   await page.getByRole("link", { name: "Guardadas" }).click();
-  await expect(page).toHaveTitle("Guardadas · Movilidad BIKI");
+  await expect(page).toHaveTitle("Guardadas · BIKI Aldea Pucela");
   await page.getByRole("link", { name: "Histórico" }).click();
-  await expect(page).toHaveTitle("Histórico · Movilidad BIKI");
+  await expect(page).toHaveTitle("Histórico · BIKI Aldea Pucela");
   await page.getByRole("link", { name: "Más" }).click();
-  await expect(page).toHaveTitle("Más · Movilidad BIKI");
+  await expect(page).toHaveTitle("Más · BIKI Aldea Pucela");
   await page.getByRole("link", { name: "Mapa", exact: true }).click();
-  await expect(page).toHaveTitle("Movilidad · BIKI Valladolid");
+  await expect(page).toHaveTitle("BIKI Aldea Pucela · Valladolid");
 });
 
 test("declara un favicon y se sirve", async ({ page, request }) => {
@@ -35,6 +35,22 @@ test("declara un favicon y se sirve", async ({ page, request }) => {
     expect(response.status(), href).toBe(200);
     expect(response.headers()["content-type"], href).toMatch(/image\//);
   }
+});
+
+test("declara y sirve el manifest y los iconos de instalación", async ({ page, request }) => {
+  await page.goto("/");
+  const manifestHref = await page.locator('link[rel="manifest"]').getAttribute("href");
+  const manifestResponse = await request.get(new URL(manifestHref, page.url()).href);
+  expect(manifestResponse.status()).toBe(200);
+  const manifest = await manifestResponse.json();
+  expect(manifest.name).toBe("BIKI Aldea Pucela");
+  for (const icon of manifest.icons) {
+    const response = await request.get(new URL(icon.src, page.url()).href);
+    expect(response.status(), icon.src).toBe(200);
+    expect(response.headers()["content-type"], icon.src).toMatch(/image\/png/);
+  }
+  const appleIcon = await page.locator('link[rel="apple-touch-icon"]').getAttribute("href");
+  expect((await request.get(new URL(appleIcon, page.url()).href)).status()).toBe(200);
 });
 
 test("la CSP del <meta> no incluye frame-ancestors (solo funciona como cabecera)", async ({ page }) => {
