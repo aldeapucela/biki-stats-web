@@ -1,0 +1,40 @@
+/* Modo «En ruta»: salida y llegada en la misma tarjeta, estimación a la hora de llegada y alternativas. */
+.route-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
+.route-buttons .destination-button, .route-buttons .origin-button { margin-top: 0; }
+.origin-button { display: block; width: 100%; padding: 9px 12px; border: 1.5px dashed #4f3e62; border-radius: 10px; background: transparent; color: #4f3e62; font: inherit; font-size: .85rem; font-weight: 700; cursor: pointer; }
+.origin-button[aria-pressed="true"] { border-style: solid; background: #4f3e62; color: #fff; }
+[data-theme="dark"] .origin-button { border-color: #a58fc4; color: #d9cdeb; }
+[data-theme="dark"] .origin-button[aria-pressed="true"] { background: #a58fc4; color: #1b1426; }
+.destination-card.with-origin { display: grid; gap: 14px; grid-template-columns: 1fr 1fr; }
+.route-leg + .route-leg { padding-left: 20px; border-left: 1px solid #66517d33; }
+[data-theme="dark"] .route-leg + .route-leg { border-left-color: #a58fc433; }
+.origin-leg h3 { margin: 2px 0 0; font-size: 1.3rem; }
+.origin-bikes { margin: 10px 0 2px; font-size: 1rem; }
+.origin-bikes strong { font-size: 2rem; letter-spacing: -.04em; }
+.origin-bikes span { font-size: .88rem; }
+.route-leg.missing { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.route-hint { margin: 0; font-size: .9rem; align-self: center; }
+.route-outlook { margin: 8px 0 0; padding: 8px 12px; border-left: 4px solid var(--level, #52525b); border-radius: 6px; background: #ffffff80; font-size: .88rem; }
+[data-theme="dark"] .route-outlook { background: #ffffff10; }
+.route-outlook strong { color: var(--level, inherit); }
+.route-outlook small { display: block; margin-top: 2px; font-size: .75rem; opacity: .85; }
+.route-outlook.muted { --level: #667085; font-size: .8rem; }
+.route-outlook[data-level="sure"] { --level: var(--ap-ok); }
+.route-outlook[data-level="likely"] { --level: #3f7d20; }
+.route-outlook[data-level="doubtful"] { --level: var(--ap-few); }
+.route-outlook[data-level="unlikely"] { --level: #b42318; }
+[data-theme="dark"] .route-outlook[data-level="sure"] { --level: #5fd0b6; }
+[data-theme="dark"] .route-outlook[data-level="likely"] { --level: #9bd77a; }
+[data-theme="dark"] .route-outlook[data-level="doubtful"] { --level: #f6b26b; }
+[data-theme="dark"] .route-outlook[data-level="unlikely"] { --level: #ff9d93; }
+.route-alt { margin: 8px 0 0; font-size: .85rem; }
+.route-total { margin: 6px 0 0; font-size: .9rem; font-weight: 700; }
+.route-walk-line { stroke: #4f3e62; stroke-width: 3; stroke-dasharray: 1 7; stroke-linecap: round; fill: none; opacity: .75; }
+[data-theme="dark"] .route-walk-line { stroke: #d9cdeb; }
+.station-marker.origin .marker-values { outline: 3px dashed #4f3e62; outline-offset: 2px; border-radius: 12px; }
+@media (max-width: 700px) {
+  .destination-card.with-origin { grid-template-columns: 1fr; gap: 10px; }
+  .route-leg + .route-leg { padding-left: 0; padding-top: 10px; border-left: 0; border-top: 1px solid #66517d33; }
+  .origin-bikes strong { font-size: 1.7rem; }
+  .route-outlook small { font-size: .72rem; }
+}
