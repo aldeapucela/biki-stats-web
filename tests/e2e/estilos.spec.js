@@ -28,6 +28,7 @@ test("el título del documento cambia con la ruta", async ({ page }) => {
 
 test("declara un favicon y se sirve", async ({ page, request }) => {
   await page.goto("/");
+  await expect(page.locator('link[rel~="icon"][href="/favicon.png"]')).toHaveAttribute("sizes", "512x512");
   const hrefs = await page.locator('link[rel~="icon"]').evaluateAll((links) => links.map((link) => link.getAttribute("href")));
   expect(hrefs.length).toBeGreaterThan(0);
   for (const href of hrefs) {
