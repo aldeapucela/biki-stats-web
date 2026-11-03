@@ -2,6 +2,7 @@ import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 import "./styles.css";
 import "./history-overrides.css";
+import "./marca.css";
 import "./destination.css";
 import "./route.css";
 import "./history-stats.css";
@@ -107,7 +108,7 @@ function shell(content) {
   const routeHref = (route) => route === "map" ? "/" : `/${route}`;
   return `<div class="app-shell">
     <header class="topbar">
-      <a class="brand" href="/" data-route="map" aria-label="Movilidad BIKI, ir al mapa"><span class="brand-mark">●</span><span>Movilidad <strong>· BIKI</strong></span></a>
+      <a class="brand" href="/" data-route="map" aria-label="Movilidad BIKI, ir al mapa"><span class="brand-mark"><img src="/aldea-pucela.jpg" alt="" width="32" height="32" /></span><span>Movilidad <strong>· BIKI</strong></span></a>
       <nav class="top-nav" aria-label="Navegación principal">${links.map(([route, label]) => `<a class="top-nav-link ${state.route === route ? "active" : ""}" href="${routeHref(route)}" data-route="${route}" aria-current="${state.route === route ? "page" : "false"}">${label}</a>`).join("")}</nav>
       <div class="top-actions"><span class="dev-badge ${api.useFixtures ? "" : "hidden"}">DATOS SIMULADOS</span><button class="icon-button" data-action="theme" aria-label="Cambiar tema">${state.theme === "dark" ? "☀" : "☾"}</button></div>
     </header>
@@ -465,7 +466,7 @@ function renderMapInstance() {
     const el = L.DomUtil.create("div", "map-legend");
     el.setAttribute("role", "group");
     el.setAttribute("aria-label", "Leyenda del mapa");
-    el.innerHTML = `<span><b class="marker-value mechanical">M</b>mecánica</span><span><b class="marker-value electric">E</b>eléctrica</span><span><i class="bikes-ok"></i>4 o más bicis</span><span><i class="bikes-few"></i>1 a 3</span><span><i class="bikes-none"></i>0</span>`;
+    el.innerHTML = `<span><b class="marker-value mechanical">M</b>mecánica</span><span><b class="marker-value electric">E</b>eléctrica</span><span><i class="bikes-none"></i>sin bicis</span><span><i class="bikes-partial"></i>falta un tipo</span><span class="legend-greens"><i class="bikes-ok-low"></i><i class="bikes-ok-mid"></i><i class="bikes-ok-high"></i>de las dos: 1, 2–3, 4 o más</span>`;
     L.DomEvent.disableClickPropagation(el);
     return el;
   };
