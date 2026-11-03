@@ -1,0 +1,82 @@
+/* Histórico: última lectura dibujada, KPI de mejor/peor hora, mapa de calor y evolución con ejes.
+   Todo va acotado a .history-page: no cambia la paleta del resto de la web (eso es la #19). */
+.history-page {
+  --h-mechanical: var(--ap-ok, #13705f);
+  --h-electric: #66517d;
+  --h-grid: #e5e7eb;
+  --h-tick: #52525b;
+  --h-empty: #eef3f1;
+  --h-ink: #27272a;
+  --h-free: #8a7f6a;
+}
+[data-theme="dark"] .history-page {
+  --h-electric: #a58fc4;
+  --h-grid: #2d3240;
+  --h-tick: #c9c9d1;
+  --h-empty: #262b36;
+  --h-ink: #f5f3ee;
+  --h-free: #a79f8e;
+}
+
+.history-page .svg-mechanical { fill: var(--h-mechanical); }
+.history-page .svg-electric { fill: var(--h-electric); }
+.history-page .legend-dot.mechanical { background: var(--h-mechanical); }
+.history-page .legend-dot.electric { background: var(--h-electric); }
+
+/* Última lectura */
+.now-card { margin-bottom: 14px; padding: 18px 22px; border-radius: 20px; background: #f1e8d5; color: #27272a; }
+[data-theme="dark"] .now-card { background: #2a2620; color: #f5f3ee; }
+.now-card .eyebrow { margin: 0; }
+.now-card h2 { margin: 4px 0 0; font-size: 1.7rem; }
+.now-card h2 span { font-size: .9rem; font-weight: 500; opacity: .75; }
+.slot-row { display: flex; flex-wrap: wrap; gap: 6px; margin: 14px 0 10px; }
+.slot { display: inline-block; width: 14px; height: 26px; border-radius: 4px; vertical-align: middle; }
+.slot.mechanical { background: var(--h-mechanical); }
+.slot.electric { background: var(--h-electric); }
+.slot.free { border: 2px dashed var(--h-free); background: transparent; }
+.slot-legend { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 0; font-size: .9rem; }
+.slot-legend .slot { width: 10px; height: 16px; margin-right: 6px; }
+
+/* Segunda fila de KPI */
+.hour-kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 14px; }
+@media (max-width: 900px) { .hour-kpis { grid-template-columns: repeat(2, 1fr); } }
+
+/* Mapa de calor */
+.heatmap { display: grid; gap: 3px; overflow-x: auto; }
+.hm-row { display: grid; grid-template-columns: 48px 1fr; align-items: center; gap: 6px; }
+.hm-label { color: var(--h-tick); font-size: .72rem; font-weight: 650; white-space: nowrap; }
+.hm-cells { display: grid; grid-template-columns: repeat(24, minmax(0, 1fr)); gap: 2px; }
+.hm-h { color: var(--h-tick); font-size: .62rem; }
+.hm-cell { display: grid; place-items: center; height: 26px; border-radius: 4px; background: color-mix(in srgb, var(--h-mechanical) calc(var(--v, 0) * 100%), var(--h-empty)); font-style: normal; }
+.hm-cell b { color: var(--h-ink); font-size: .6rem; font-weight: 700; }
+.hm-cell.strong b { color: #fff; }
+.hm-cell.zero { background: repeating-linear-gradient(45deg, var(--h-grid), var(--h-grid) 3px, transparent 3px, transparent 6px); }
+.hm-cell.none { border: 1px dashed var(--h-grid); background: transparent; }
+.hm-cell:hover { outline: 2px solid var(--h-electric); }
+.hm-scale { display: inline-block; width: 90px; height: 10px; margin: 0 6px; border-radius: 5px; background: linear-gradient(90deg, var(--h-empty), var(--h-mechanical)); }
+
+/* Evolución con ejes */
+.history-page .stacked-chart { width: 100%; min-width: 0; height: auto; aspect-ratio: 900 / 260; }
+.chart-grid { stroke: var(--h-grid); stroke-width: 1; }
+.chart-grid.day { stroke-dasharray: 3 3; }
+.chart-tick { fill: var(--h-tick); font-size: 13px; }
+.chart-hit { fill: transparent; }
+.chart-col.on rect:not(.chart-hit) { filter: brightness(1.15); }
+.chart-readout { min-height: 1.4em; margin: 6px 0 4px; color: var(--h-ink); font-size: .78rem; }
+.chart-readout .legend-dot { margin: 0 3px 0 6px; }
+
+.data-note { margin: 6px 2px 24px; color: var(--h-tick); font-size: .78rem; }
+
+@media (max-width: 700px) {
+  .hour-kpis { gap: 8px; }
+  .history-page .chart-scroll { overflow-x: auto; }
+  .history-page .stacked-chart { min-width: 560px; }
+  .chart-tick { font-size: 15px; }
+  .hm-cell b { display: none; }
+  .hm-cell { height: 22px; }
+  .hm-row { grid-template-columns: 54px 1fr; }
+  .hm-label { font-size: .66rem; }
+  .now-card h2 { font-size: 1.4rem; }
+  .slot { width: 11px; height: 22px; }
+  .slot-row { gap: 5px; }
+}
