@@ -3,11 +3,17 @@ import L from "leaflet";
 import "./styles.css";
 import "./history-overrides.css";
 import "./marca.css";
+import "./destination.css";
+import "./route.css";
+import "./history-stats.css";
 import { api, ApiError } from "./api.js";
 import { createHistoryLoader } from "./history-loader.js";
 import { analytics } from "./analytics.js";
 import { bikesTone } from "./tone.js";
-import { navigate, setTheme, state, toggleFavorite } from "./state.js";
+import { navigate, setDestination, setOrigin, setTheme, state, toggleFavorite } from "./state.js";
+import { distanceMeters, docksDrop, estimateMinutes, recordSample } from "./destination.js";
+import { alternatives, countFor, formatClock, outlook, planRoute } from "./availability.js";
+import { TIME_ZONE, bestAndWorstHour, freeDocks, heatmapRows, hourlyAverages, madridParts, stationSlots, totalBikes } from "./history-stats.js";
 
 let map;
 let markers = [];
@@ -25,6 +31,25 @@ const routeFromLocation = () => {
 window.addEventListener("popstate", () => { state.route = routeFromLocation(); render(); });
 window.addEventListener("hashchange", () => { state.route = window.location.hash.slice(2) || "map"; render(); });
 window.addEventListener("storage", () => render());
+// Delegado: los popups de Leaflet se crean fuera de los listeners que enlaza bindEvents().
+document.addEventListener("click", (event) => {
+  const chooseOrigin = event.target.closest?.("[data-origin]");
+  const clearOrigin = event.target.closest?.("[data-origin-clear]");
+  if (chooseOrigin || clearOrigin) {
+    const originId = chooseOrigin?.dataset.origin;
+    setOrigin(!originId || originId === state.originId ? null : originId);
+    if (!state.destinationId) destinationSamples = [];
+    render();
+    return;
+  }
+  const choose = event.target.closest?.("[data-destination]");
+  const clear = event.target.closest?.("[data-destination-clear]");
+  if (!choose && !clear) return;
+  const id = choose?.dataset.destination;
+  if (!id || id === state.destinationId) setDestination(null);
+  else { setDestination(id); destinationSamples = []; recordDestinationSample(); }
+  render();
+});
 
 const esc = (value) => String(value ?? "").replace(/[&<>'"]/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" }[char]));
 const formatAge = (seconds) => seconds == null ? "Sin fecha" : seconds < 60 ? "hace menos de 1 min" : `hace ${Math.floor(seconds / 60)} min`;
@@ -33,6 +58,11 @@ const occupancyTone = (value) => value == null ? "unknown" : value >= 75 ? "high
 const locationMessage = () => state.locationStatus === "requesting" ? "Solicitando ubicación…" : state.locationStatus === "available" ? "Ubicación activa" : state.locationStatus === "denied" ? "Ubicación no disponible" : "Cerca de mí";
 const currentStation = () => state.stations.find((station) => station.station_id === state.selectedStationId) || state.stations[0];
 const stationById = (stationId) => state.stations.find((station) => station.station_id === stationId);
+// Lecturas de huecos libres del destino en esta sesión, para avisar de una bajada reciente.
+let destinationSamples = [];
+const recordDestinationSample = () => { if (state.destinationId) destinationSamples = recordSample(destinationSamples, Date.now(), stationById(state.destinationId)?.free_docks); };
+const formatDistance = (meters) => (meters < 1000 ? `${Math.max(10, Math.round(meters / 10) * 10)} m` : `${formatNumber(meters / 1000, 1)} km`);
+const osmBikeUrl = (latitude, longitude) => `https://www.openstreetmap.org/directions?engine=fossgis_osrm_bike&route=%3B${latitude}%2C${longitude}`;
 // Un error de la API solo sustituye a la lista si no hay estaciones que mostrar; con datos cargados
 // se conserva la lista y se avisa aparte, sin bloquearla.
 const stationsUnavailable = () => Boolean(state.error) && !state.stations.length;
@@ -89,6 +119,13 @@ function shell(content) {
   </div>`;
 }
 
+// «Recojo aquí» fija la estación de salida y «Voy a esta estación» la de llegada (#27); una estación no puede ser las dos.
+function routeButtons(station, pressed = false) {
+  const id = esc(station.station_id);
+  const isOrigin = state.originId === station.station_id; const isDestination = state.destinationId === station.station_id;
+  return `<div class="route-buttons"><button type="button" class="origin-button" data-origin="${id}"${pressed ? ` aria-pressed="${isOrigin}"` : ""}>${isOrigin ? "Quitar salida" : "Recojo aquí"}</button><button type="button" class="destination-button" data-destination="${id}"${pressed ? ` aria-pressed="${isDestination}"` : ""}>${isDestination ? "Quitar destino" : "Voy a esta estación"}</button></div>`;
+}
+
 function stationCard(station, compact = false) {
   const tone = occupancyTone(station.occupancy_percent);
   const favorite = state.favorites.has(station.station_id);
@@ -97,6 +134,7 @@ function stationCard(station, compact = false) {
     <div class="occupancy-row"><span class="status-dot ${tone}"></span><strong>${station.occupancy_percent == null ? "Sin ocupación" : `${formatNumber(station.occupancy_percent, 0)}% ocupada`}</strong><span class="capacity">${station.capacity == null ? "—" : `${formatNumber(station.capacity)} plazas`}</span></div>
     <div class="occupancy-bar"><span class="bar-fill ${tone}" style="width:${Math.min(100, station.occupancy_percent || 0)}%"></span></div>
     <div class="station-metrics"><span><i class="bike mechanical"></i>${formatNumber(station.bikes?.mechanical)} mecánicas</span><span><i class="bike electric"></i>${formatNumber(station.bikes?.electric)} eléctricas</span><span><i class="dock"></i>${formatNumber(station.free_docks)} libres</span></div>
+    ${routeButtons(station, true)}
     ${compact ? "" : `<p class="freshness ${station.is_stale ? "stale" : ""}">${station.is_stale ? "Datos posiblemente obsoletos · " : "Actualizado "}${formatAge(station.data_age_seconds)}</p>`}
   </article>`;
 }
@@ -105,9 +143,9 @@ function stationTooltip(station) {
   const latitude = station.location?.latitude;
   const longitude = station.location?.longitude;
   const directionsUrl = latitude != null && longitude != null
-    ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(`${latitude},${longitude}`)}`
+    ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(`${latitude},${longitude}`)}&travelmode=bicycling`
     : null;
-  return `<div class="station-popup-content"><strong>${esc(station.name)}</strong><span>${station.occupancy_percent == null ? "Sin ocupación" : `${formatNumber(station.occupancy_percent, 0)}% ocupada`}</span><span>${formatNumber(station.bikes?.mechanical)} mecánicas · ${formatNumber(station.bikes?.electric)} eléctricas</span><span>${formatNumber(station.free_docks)} anclajes libres${station.capacity == null ? "" : ` de ${formatNumber(station.capacity)}`}</span>${directionsUrl ? `<a class="map-directions-button" href="${directionsUrl}" target="_blank" rel="noreferrer">Cómo llegar</a>` : ""}</div>`;
+  return `<div class="station-popup-content"><strong>${esc(station.name)}</strong><span>${station.occupancy_percent == null ? "Sin ocupación" : `${formatNumber(station.occupancy_percent, 0)}% ocupada`}</span><span>${formatNumber(station.bikes?.mechanical)} mecánicas · ${formatNumber(station.bikes?.electric)} eléctricas</span><span>${formatNumber(station.free_docks)} anclajes libres${station.capacity == null ? "" : ` de ${formatNumber(station.capacity)}`}</span>${routeButtons(station)}${directionsUrl ? `<a class="map-directions-button" href="${directionsUrl}" target="_blank" rel="noreferrer">Cómo llegar</a><a class="map-directions-link" href="${osmBikeUrl(latitude, longitude)}" target="_blank" rel="noreferrer">En OpenStreetMap (bici)</a>` : ""}</div>`;
 }
 
 function filterStations() {
@@ -124,10 +162,89 @@ function mapLayout() {
   return `<div class="map-layout"><aside class="station-panel ${state.stationPanelExpanded ? "expanded" : "collapsed"}" aria-label="Lista de estaciones"><button type="button" class="station-panel-handle" data-panel-toggle aria-label="${state.stationPanelExpanded ? "Minimizar" : "Expandir"} listado de estaciones" aria-expanded="${state.stationPanelExpanded}"><span aria-hidden="true"></span></button><div class="search-wrap"><label for="station-search" class="sr-only">Buscar estación</label><span aria-hidden="true">⌕</span><input id="station-search" type="search" placeholder="Buscar por nombre" value="${esc(state.query)}" /></div><div class="filter-chips" role="group" aria-label="Filtros de ocupación">${[["all", "Todas"], ["electric", "Eléctricas"], ["low", "Poca ocupación"], ["high", "Muy ocupadas"]].map(([key, label]) => `<button class="chip ${state.filter === key ? "active" : ""}" data-filter="${key}">${label}</button>`).join("")}</div><div class="panel-status"><span>${filterStations().length} estaciones</span><span>${state.updatedAt ? `Consulta ${state.updatedAt.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}` : state.loading ? "Cargando…" : "Sin datos"}</span></div><div id="station-list" class="station-list">${state.loading ? loadingState() : filterStations().map((station) => stationCard(station)).join("") || emptyState("No hay estaciones que coincidan", "Prueba con otro nombre o filtro.")}</div></aside><div id="map" class="map-container" aria-label="Mapa de estaciones BIKI"></div></div>`;
 }
 
+const OUTLOOK_TEXT = {
+  bike: { sure: "Casi seguro que quedará alguna bici", likely: "Es probable que quede alguna bici", doubtful: "Dudoso que quede alguna bici", unlikely: "Poco probable que quede alguna bici" },
+  dock: { sure: "Casi seguro que habrá hueco", likely: "Es probable que haya hueco", doubtful: "Dudoso que haya hueco", unlikely: "Poco probable que haya hueco" },
+};
+const frequencyText = (kind, p) => {
+  const noun = kind === "bike" ? "bici" : "hueco";
+  if (p >= 0.95) return `Casi siempre hubo ${noun} en ocasiones parecidas`;
+  if (p < 0.05) return `Casi nunca hubo ${noun} en ocasiones parecidas`;
+  return `Hubo ${noun} en unas ${Math.min(9, Math.max(1, Math.round(p * 10)))} de cada 10 ocasiones parecidas`;
+};
+// Frecuencia histórica de que haya bici (salida) o hueco (llegada) a la hora en que se llegará, condicionada a lo que hay ahora.
+function outlookLine(kind, station, minutes) {
+  if (minutes == null) return "";
+  if (station.is_stale) return `<p class="route-outlook muted">Datos posiblemente obsoletos: sin estimación para tu llegada.</p>`;
+  const result = outlook(kind, countFor(kind, station), minutes);
+  if (!result.ok) {
+    const message = { far: "Falta más de 45 min: sin estimación.", few: `Sin datos suficientes para estimar a las ${result.arrival ? formatClock(result.arrival) : "esa hora"}.` }[result.reason];
+    return message ? `<p class="route-outlook muted">${message}</p>` : "";
+  }
+  return `<p class="route-outlook" data-level="${result.level}"><strong>${OUTLOOK_TEXT[kind][result.level]}</strong> cuando llegues (${formatClock(result.arrival)}, en unos ${minutes} min).<small>${frequencyText(kind, result.p)} (${formatNumber(result.n)} lecturas). Frecuencia histórica, no una previsión.</small></p>`;
+}
+// Ofrece las estaciones cercanas con disponibilidad cuando ahora no queda nada o la frecuencia a la llegada es dudosa o baja.
+function alternativesLine(kind, station, minutes) {
+  const count = countFor(kind, station);
+  const result = minutes != null && !station.is_stale ? outlook(kind, count, minutes) : { ok: false };
+  if (!(count === 0 || (result.ok && (result.level === "doubtful" || result.level === "unlikely")))) return "";
+  const list = alternatives(state.stations, kind, station.location, station.station_id);
+  if (!list.length) return "";
+  const attribute = kind === "bike" ? "data-origin" : "data-destination";
+  return `<p class="route-alt">Cerca con ${kind === "bike" ? "bicis" : "huecos"}: ${list.map(({ station: other, meters }) => `<button type="button" class="link-button" ${attribute}="${esc(other.station_id)}">${esc(other.name)}</button> (${formatDistance(meters)})`).join(" · ")}</p>`;
+}
+const freshnessLine = (station) => `<p class="freshness ${station.is_stale ? "stale" : ""}">${station.is_stale ? "Datos posiblemente obsoletos · " : "Actualizado "}${formatAge(station.data_age_seconds)}</p>`;
+const missingLeg = (clearAttribute, label) => `<div class="route-leg missing"><p>La estación que elegiste ya no está disponible.</p><button type="button" class="secondary-button" ${clearAttribute}>${label}</button></div>`;
+
+function originLeg(station, plan) {
+  if (!station) return missingLeg("data-origin-clear", "Quitar salida");
+  const bikes = countFor("bike", station);
+  const meters = state.userLocation && station.location?.latitude != null ? distanceMeters(state.userLocation, station.location) : null;
+  const trip = meters != null
+    ? `A ${formatDistance(meters)} en línea recta · unos ${plan.walk} min andando (estimado, no es una ruta)`
+    : state.geoDenied ? "Sin tu ubicación no se puede calcular cuánto tardas en llegar." : `<button type="button" class="link-button" data-action="locate">Activar mi ubicación</button> para ver cuánto tardas en llegar`;
+  return `<div class="route-leg origin-leg"><div class="destination-head"><div><p class="eyebrow">1 · DONDE RECOJO LA BICI</p><h3>${esc(station.name)}</h3></div><button type="button" class="secondary-button" data-origin-clear>Quitar salida</button></div>
+    <p class="origin-bikes"><strong>${formatNumber(bikes)}</strong> ${bikes === 1 ? "bici" : "bicis"} ahora <span>(${formatNumber(station.bikes?.mechanical)} mecánicas · ${formatNumber(station.bikes?.electric)} eléctricas)</span></p>
+    ${bikes === 0 ? `<p class="destination-alert" role="status">Ahora mismo no queda ninguna bici.</p>` : ""}
+    ${outlookLine("bike", station, plan.pickup)}${alternativesLine("bike", station, plan.pickup)}
+    <p class="destination-trip">${trip}</p>${freshnessLine(station)}</div>`;
+}
+
+function destinationLeg(station, plan, origin) {
+  if (!station) return missingLeg("data-destination-clear", "Quitar destino");
+  const hasPosition = station.location?.latitude != null && station.location?.longitude != null;
+  const from = origin?.location?.latitude != null ? origin.location : state.userLocation;
+  const meters = from && hasPosition ? distanceMeters(from, station.location) : null;
+  const trip = meters != null
+    ? `${origin ? "De la salida al destino:" : "A"} ${formatDistance(meters)} en línea recta · unos ${plan.ride} min en bici (estimado, no es una ruta)`
+    : state.geoDenied ? "Sin tu ubicación no se puede calcular la distancia." : `<button type="button" class="link-button" data-action="locate">Activar mi ubicación</button> para ver la distancia`;
+  const drop = docksDrop(destinationSamples);
+  const docks = station.free_docks;
+  const arrival = plan.drop != null ? new Date(Date.now() + plan.drop * 60_000) : null;
+  return `<div class="route-leg destination-leg"><div class="destination-head"><div><p class="eyebrow">${origin || state.originId ? "2 · DONDE LA DEJO" : "TU DESTINO"}</p><h2>${esc(station.name)}</h2></div><button type="button" class="secondary-button" data-destination-clear>Quitar destino</button></div>
+    <p class="destination-docks"><strong>${formatNumber(docks)}</strong> ${docks === 1 ? "hueco libre" : "huecos libres"} para dejar tu bici${station.capacity == null ? "" : ` de ${formatNumber(station.capacity)}`}</p>
+    <p class="destination-bikes">${formatNumber(station.bikes?.mechanical)} mecánicas · ${formatNumber(station.bikes?.electric)} eléctricas</p>
+    ${docks === 0 ? `<p class="destination-alert" role="status">Ahora mismo no queda ningún hueco libre.</p>` : ""}
+    ${drop ? `<p class="destination-alert" role="status">Los huecos bajan: ahora ${formatNumber(drop.to)}, hace ${drop.minutes} min había ${formatNumber(drop.from)}.</p>` : ""}
+    ${outlookLine("dock", station, plan.drop)}${alternativesLine("dock", station, plan.drop)}
+    <p class="destination-trip">${trip}</p>
+    ${origin && arrival ? `<p class="route-total">Llegarías a dejarla sobre las ${formatClock(arrival)} (en unos ${plan.drop} min).</p>` : ""}
+    ${freshnessLine(station)}</div>`;
+}
+
+function routeCard() {
+  if ((!state.originId && !state.destinationId) || !state.stations.length) return "";
+  const origin = state.originId ? stationById(state.originId) : null;
+  const destination = state.destinationId ? stationById(state.destinationId) : null;
+  const plan = planRoute({ user: state.userLocation, origin, destination });
+  const alone = !state.originId && !destination;
+  return `<section class="destination-card ${state.originId ? "with-origin" : ""} ${alone ? "missing" : ""}" aria-label="${state.originId ? "Tu ruta" : "Estación destino"}">${state.originId ? originLeg(origin, plan) : ""}${state.destinationId ? destinationLeg(destination, plan, origin) : `<p class="route-hint">Elige en el mapa o en la lista dónde la dejas con «Voy a esta estación».</p>`}</section>`;
+}
+
 function mapView() {
   return `<section class="page map-page"><div class="page-heading"><div><p class="eyebrow">VALLADOLID · INFORMACIÓN EN TIEMPO DIFERIDO</p><h1>Estaciones BIKI</h1><p class="lede">Consulta bicicletas y anclajes disponibles cerca de ti.</p></div><button class="secondary-button" data-action="locate" ${state.locationStatus === "requesting" ? "disabled" : ""}>⌖ ${locationMessage()}</button></div>
     ${panelNotice() ? `<p class="panel-notice" role="status">${esc(panelNotice())}</p>` : ""}
-    ${stationsUnavailable() ? `<div class="map-error">${errorState(state.error)}</div>` : mapLayout()}</section>`;
+    ${stationsUnavailable() ? `<div class="map-error">${errorState(state.error)}</div>` : `${routeCard()}${mapLayout()}`}</section>`;
 }
 
 function historyView() {
@@ -148,18 +265,95 @@ function historyContent(station) {
   const points = entry.history.data?.points || [];
   const summary = entry.summary.data;
   const chart = entry.history.data === undefined ? (entry.history.status === "loading" ? loadingState("Cargando gráfico…") : partError("No se pudo cargar el gráfico", entry.history.error, "history")) : points.length ? stackedChart(points) : emptyState("Sin observaciones", "No hay datos históricos para este periodo.");
-  return `${historyNotice(entry)}<div class="history-kpis"><div class="kpi-card"><span>Ocupación media</span><strong>${formatNumber(summary?.occupancy?.average_percent, 1)}%</strong><small>${state.period} · ${summary ? `${summary.observations || 0} observaciones` : "sin resumen"}</small></div><div class="kpi-card"><span>Máxima ocupación</span><strong>${formatNumber(summary?.occupancy?.maximum_percent, 1)}%</strong><small>${formatDate(summary?.occupancy?.maximum_at)}</small></div><div class="kpi-card"><span>Mínima ocupación</span><strong>${formatNumber(summary?.occupancy?.minimum_percent, 1)}%</strong><small>${formatDate(summary?.occupancy?.minimum_at)}</small></div><div class="kpi-card"><span>Bicis medias</span><div class="average-bikes"><div><i class="legend-dot mechanical"></i><strong>${formatNumber(summary?.bikes?.mechanical_average, 1)}</strong><small>Mecánicas</small></div><div><i class="legend-dot electric"></i><strong>${formatNumber(summary?.bikes?.electric_average, 1)}</strong><small>Eléctricas</small></div></div></div></div><div class="chart-card"><div class="card-heading"><div><p class="eyebrow">DISPONIBILIDAD POR PERIODO</p><h2>Ocupación y anclajes</h2></div><span class="legend"><i class="legend-dot mechanical"></i>Mecánicas <i class="legend-dot electric"></i>Eléctricas <i class="legend-dot docks"></i>Libres</span></div>${chart}</div><div class="history-lower"><div class="chart-card composition-card"><div class="card-heading"><div><p class="eyebrow">COMPOSICIÓN MEDIA</p><h2>Qué hay en la estación</h2></div></div>${summary ? `${donut(summary.composition)}<div class="composition-legend"><span><i class="legend-dot mechanical"></i>Mecánicas ${formatNumber(summary.composition?.mechanical_percent, 0)}%</span><span><i class="legend-dot electric"></i>Eléctricas ${formatNumber(summary.composition?.electric_percent, 0)}%</span><span><i class="legend-dot docks"></i>Libres ${formatNumber(summary.composition?.free_docks_percent, 0)}%</span></div>` : `<p class="freshness">Sin resumen: la composición no está disponible.</p>`}</div><div class="chart-card missing-card"><p class="eyebrow">CALIDAD DEL DATO</p><h2>Sin inventar huecos</h2>${summary ? `<p>Se han recibido <strong>${formatNumber(summary.observations)}</strong> observaciones. ${summary.missing_buckets ? `Faltan ${summary.missing_buckets} periodos; se muestran como ausencia de datos.` : "No se han detectado periodos vacíos."}</p><p class="freshness">Última observación: ${formatDate(summary.last_observed_at)}</p>` : `<p>Sin resumen: no se puede saber cuántas observaciones hay ni si faltan periodos.</p>`}</div></div></div>`;
+  const hasPoints = points.length > 0;
+  const observations = summary ? `<p class="data-note">${formatNumber(summary.observations)} observaciones · última ${esc(formatDate(summary.last_observed_at))}. ${summary.missing_buckets ? `Faltan ${summary.missing_buckets} periodos y se muestran como ausencia de datos, no inventados.` : "Sin periodos vacíos."}</p>` : `<p class="data-note">Sin resumen: no se puede saber cuántas observaciones hay ni si faltan periodos.</p>`;
+  return `${historyNotice(entry)}${hasPoints ? lastReadingCard(points[points.length - 1]) : ""}${summaryKpis(summary)}${hasPoints ? hourKpis(points) : ""}${hasPoints && state.period !== "24h" ? heatmap(points) : ""}<div class="chart-card"><div class="card-heading"><div><p class="eyebrow">EVOLUCIÓN</p><h2>Bicis disponibles a lo largo del tiempo</h2></div><span class="legend"><i class="legend-dot mechanical"></i>Mecánicas <i class="legend-dot electric"></i>Eléctricas</span></div>${chart}</div>${observations}`;
 }
 
+const hourLabel = (hour) => `${String(hour).padStart(2, "0")}:00`;
+const hourKpi = (label, entry, unit) => `<div class="kpi-card"><span>${label}</span><strong>${entry ? hourLabel(entry.hour) : "—"}</strong><small>${entry ? `${formatNumber(entry.value, 1)} ${unit} de media` : "Sin datos"}</small></div>`;
+
+function summaryKpis(summary) {
+  return `<div class="history-kpis"><div class="kpi-card"><span>Ocupación media</span><strong>${formatNumber(summary?.occupancy?.average_percent, 1)}%</strong><small>${state.period} · ${summary ? `${summary.observations || 0} observaciones` : "sin resumen"}</small></div><div class="kpi-card"><span>Máxima ocupación</span><strong>${formatNumber(summary?.occupancy?.maximum_percent, 1)}%</strong><small>${formatDate(summary?.occupancy?.maximum_at)}</small></div><div class="kpi-card"><span>Mínima ocupación</span><strong>${formatNumber(summary?.occupancy?.minimum_percent, 1)}%</strong><small>${formatDate(summary?.occupancy?.minimum_at)}</small></div><div class="kpi-card"><span>Bicis medias</span><div class="average-bikes"><div><i class="legend-dot mechanical"></i><strong>${formatNumber(summary?.bikes?.mechanical_average, 1)}</strong><small>Mecánicas</small></div><div><i class="legend-dot electric"></i><strong>${formatNumber(summary?.bikes?.electric_average, 1)}</strong><small>Eléctricas</small></div></div></div></div>`;
+}
+
+// Mejor y peor hora, en hora de Madrid, para coger (bicis) y para dejar (huecos libres).
+function hourKpis(points) {
+  const bikes = bestAndWorstHour(hourlyAverages(points, totalBikes));
+  const docks = bestAndWorstHour(hourlyAverages(points, freeDocks));
+  return `<div class="hour-kpis">${hourKpi("Mejor hora para coger", bikes?.best, "bicis")}${hourKpi("Peor hora para coger", bikes?.worst, "bicis")}${hourKpi("Mejor hora para dejar", docks?.best, "huecos")}${hourKpi("Peor hora para dejar", docks?.worst, "huecos")}</div>`;
+}
+
+// La estación dibujada: un anclaje por plaza (bici mecánica, eléctrica o hueco libre) en la última lectura.
+function lastReadingCard(point) {
+  const { mechanical, electric, free, total } = stationSlots(point);
+  const slot = (type) => `<i class="slot ${type}"></i>`;
+  return `<div class="now-card"><p class="eyebrow">ÚLTIMA LECTURA · ${esc(formatDate(point.timestamp))}</p><h2>${formatNumber(mechanical + electric)} bicis<span> de ${formatNumber(total)} anclajes</span></h2><div class="slot-row" role="img" aria-label="${mechanical} bicis mecánicas, ${electric} eléctricas y ${free} huecos libres">${slot("mechanical").repeat(mechanical)}${slot("electric").repeat(electric)}${slot("free").repeat(free)}</div><p class="slot-legend"><span>${slot("mechanical")}${mechanical} mecánicas</span><span>${slot("electric")}${electric} eléctricas</span><span>${slot("free")}${free} huecos libres para dejar la tuya</span></p></div>`;
+}
+
+function heatmap(points) {
+  const perDay = state.period === "7d";
+  const { rows, max } = heatmapRows(points, state.period);
+  const cell = (label, hour, value) => {
+    const when = `${label} ${hourLabel(hour)}`;
+    if (value === null) return `<i class="hm-cell none" data-detail="${when} · sin datos"></i>`;
+    const share = max ? value / max : 0;
+    return `<i class="hm-cell${value === 0 ? " zero" : ""}${share >= 0.5 ? " strong" : ""}" style="--v:${share.toFixed(2)}" data-detail="${when} · ${formatNumber(value, 1)} bicis${perDay ? "" : " de media"}"><b>${Math.round(value)}</b></i>`;
+  };
+  const hours = Array.from({ length: 24 }, (_, hour) => `<span class="hm-h">${hour % 3 === 0 ? hour : ""}</span>`).join("");
+  const body = rows.map((row) => `<div class="hm-row"><span class="hm-label">${row.label}</span><div class="hm-cells">${row.cells.map((value, hour) => cell(row.label, hour, value)).join("")}</div></div>`).join("");
+  return `<div class="chart-card"><div class="card-heading"><div><p class="eyebrow">CUÁNDO HAY BICIS</p><h2>${perDay ? "Cada día, hora a hora" : "Un día típico de la semana"}</h2></div><span class="legend hm-legend">0<i class="hm-scale"></i>${formatNumber(max, 0)} bicis</span></div><p class="chart-readout hm-readout" aria-live="polite">Pasa el cursor o toca una casilla para ver el dato</p><div class="heatmap" role="img" aria-label="Mapa de calor de bicis disponibles por hora. Las mejores y peores horas están en las tarjetas de arriba."><div class="hm-row"><span class="hm-label"></span><div class="hm-cells">${hours}</div></div>${body}</div></div>`;
+}
+
+const chartDayFormat = new Intl.DateTimeFormat("es-ES", { timeZone: TIME_ZONE, weekday: "short", day: "numeric" });
+const chartHourFormat = new Intl.DateTimeFormat("es-ES", { timeZone: TIME_ZONE, hour: "2-digit", minute: "2-digit" });
+const chartDateFormat = new Intl.DateTimeFormat("es-ES", { timeZone: TIME_ZONE, day: "numeric", month: "short" });
+
+// Barras de bicis (mecánicas + eléctricas) con ejes. Los huecos libres ya no se apilan: eran más de la mitad del
+// alto y escondían lo que importa. Las horas y los días del eje van en hora de Madrid.
 function stackedChart(points) {
-  const width = 900; const height = 280; const gap = Math.max(2, Math.min(12, width / points.length / 4)); const column = Math.max(3, width / points.length - gap); const max = Math.max(...points.map((point) => point.capacity || 1), 1);
-  const bars = points.map((point, index) => { const x = index * (width / points.length) + gap; const scale = height / max; const mechanical = (point.mechanical || 0) * scale; const electric = (point.electric || 0) * scale; const docks = (point.free_docks || 0) * scale; const y = height - mechanical - electric - docks; return `<g><title>${formatDate(point.timestamp)}: ${formatNumber(point.mechanical)} mecánicas, ${formatNumber(point.electric)} eléctricas, ${formatNumber(point.free_docks)} anclajes libres</title><rect class="svg-mechanical" x="${x}" y="${height - mechanical}" width="${column}" height="${mechanical}" rx="2"/><rect class="svg-electric" x="${x}" y="${height - mechanical - electric}" width="${column}" height="${electric}" rx="2"/><rect class="svg-docks" x="${x}" y="${y}" width="${column}" height="${docks}" rx="2"/></g>`; }).join("");
-  return `<div class="chart-scroll"><svg class="stacked-chart" viewBox="0 0 ${width} ${height + 30}" role="img" aria-label="Barras apiladas de bicicletas y anclajes libres"><line class="chart-axis" x1="0" y1="${height}" x2="${width}" y2="${height}"/>${bars}</svg></div>`;
+  const width = 900; const height = 260; const left = 38; const right = 8; const top = 10; const bottom = 30;
+  const innerWidth = width - left - right; const innerHeight = height - top - bottom;
+  const peak = Math.max(...points.map(totalBikes), 1);
+  const step = Math.max(1, Math.ceil(peak / 4 / 5) * 5);
+  const ceiling = Math.ceil(peak / step) * step;
+  const y = (value) => top + innerHeight - (value / ceiling) * innerHeight;
+  const slot = innerWidth / points.length; const barWidth = Math.max(2, slot * 0.78);
+  const spanHours = (Date.parse(points[points.length - 1].timestamp) - Date.parse(points[0].timestamp)) / 3600000;
+  const tick = (x, text, anchor) => `<text class="chart-tick" x="${x}" y="${height - 10}" text-anchor="${anchor}">${text}</text>`;
+  const grid = [];
+  for (let value = 0; value <= ceiling; value += step) grid.push(`<line class="chart-grid" x1="${left}" x2="${width - right}" y1="${y(value)}" y2="${y(value)}"/><text class="chart-tick" x="${left - 6}" y="${y(value) + 4}" text-anchor="end">${value}</text>`);
+  const labels = []; const every = Math.max(1, Math.round(points.length / 6)); let lastDay = null;
+  points.forEach((point, index) => {
+    const at = new Date(point.timestamp); const x = left + index * slot;
+    if (spanHours <= 36) { if (index % every === 0) labels.push(tick(x + slot / 2, chartHourFormat.format(at), "middle")); return; }
+    if (spanHours > 24 * 8) { if (index % every === 0) labels.push(tick(x + slot / 2, chartDateFormat.format(at), "middle")); return; }
+    const { dayKey } = madridParts(point.timestamp);
+    if (dayKey === lastDay) return;
+    lastDay = dayKey;
+    const next = points.findIndex((other, position) => position > index && madridParts(other.timestamp).dayKey !== dayKey);
+    if (index === 0 && next > 0 && next * slot < 70) return; // primer día casi vacío: su etiqueta pisaría a la siguiente
+    labels.push(`<line class="chart-grid day" x1="${x}" x2="${x}" y1="${top}" y2="${top + innerHeight}"/>${tick(x + 4, chartDayFormat.format(at), "start")}`);
+  });
+  const bars = points.map((point, index) => {
+    const x = left + index * slot + (slot - barWidth) / 2; const mechanical = point.mechanical || 0; const electric = point.electric || 0;
+    return `<g class="chart-col" data-time="${formatDate(point.timestamp)}" data-mechanical="${formatNumber(mechanical)}" data-electric="${formatNumber(electric)}" data-free="${formatNumber(point.free_docks)}"><rect class="chart-hit" x="${left + index * slot}" y="${top}" width="${slot}" height="${innerHeight}"/><rect class="svg-electric" x="${x}" y="${y(mechanical + electric)}" width="${barWidth}" height="${y(mechanical) - y(mechanical + electric)}"/><rect class="svg-mechanical" x="${x}" y="${y(mechanical)}" width="${barWidth}" height="${y(0) - y(mechanical)}"/></g>`;
+  }).join("");
+  return `<p class="chart-readout" aria-live="polite">Pasa el cursor o toca una barra para ver el detalle</p><div class="chart-scroll"><svg class="stacked-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="Barras apiladas de bicicletas mecánicas y eléctricas disponibles a lo largo del periodo">${grid.join("")}${labels.join("")}${bars}</svg></div>`;
 }
 
-function donut(composition = {}) {
-  const values = [composition.mechanical_percent || 0, composition.electric_percent || 0, composition.free_docks_percent || 0]; const colors = ["#f47c42", "#8d6be8", "#94a3b8"]; let offset = 0; const circles = values.map((value, index) => { const circle = `<circle class="donut-segment" cx="21" cy="21" r="15" pathLength="100" stroke="${colors[index]}" stroke-dasharray="${value} ${100 - value}" stroke-dashoffset="${-offset}"/>`; offset += value; return circle; }).join(""); return `<div class="donut-wrap"><svg viewBox="0 0 42 42" class="donut" role="img" aria-label="Composición media de la estación"><circle class="donut-track" cx="21" cy="21" r="15" pathLength="100"/><g transform="rotate(-90 21 21)">${circles}</g><text x="21" y="22" text-anchor="middle">${formatNumber(values[0] + values[1], 0)}%</text></svg></div>`;
-}
+// Lectura al pasar el cursor o tocar (el <title> de SVG no sale en pantallas táctiles).
+document.addEventListener("pointerover", (event) => {
+  const cell = event.target.closest?.(".hm-cell");
+  if (cell) { const out = document.querySelector(".hm-readout"); if (out) out.textContent = cell.dataset.detail; return; }
+  const column = event.target.closest?.(".chart-col");
+  const out = document.querySelector(".chart-readout:not(.hm-readout)");
+  if (!column || !out) return;
+  document.querySelectorAll(".chart-col.on").forEach((node) => node.classList.remove("on"));
+  column.classList.add("on");
+  const { time, mechanical, electric, free } = column.dataset;
+  out.innerHTML = `<strong>${time}</strong> · <i class="legend-dot mechanical"></i>${mechanical} mecánicas <i class="legend-dot electric"></i>${electric} eléctricas · ${free} huecos libres`;
+});
 
 function savedView() {
   const saved = state.stations.filter((station) => state.favorites.has(station.station_id));
@@ -196,6 +390,7 @@ async function loadStations(useLocation = false) {
     state.nearbyMode = useLocation;
     state.stations = response.data || [];
     state.updatedAt = new Date(); state.geoDenied = false;
+    recordDestinationSample();
   } catch (error) { state.error = apiError(error); } finally { state.loading = false; render(); }
 }
 
@@ -233,6 +428,7 @@ async function locateUser(manual = true) {
       state.stations = (response.data || []).sort((a, b) => (a.distance_m ?? Number.MAX_SAFE_INTEGER) - (b.distance_m ?? Number.MAX_SAFE_INTEGER));
       state.updatedAt = new Date();
       state.error = null;
+      recordDestinationSample();
     } catch (error) {
       // La ubicación funciona; el fallo es de la API y no debe presentarse como un problema de permisos.
       state.nearbyMode = false;
@@ -276,10 +472,17 @@ function renderMapInstance() {
   };
   legend.addTo(map);
   if (state.userLocation) L.circleMarker(center, { radius: 9, color: "#73579f", fillColor: "#b9a7d7", fillOpacity: 0.95, weight: 3, className: "user-location-marker" }).addTo(map).bindTooltip("Tu ubicación");
+  const positionOf = (station) => (station?.location?.latitude != null && station.location.longitude != null ? [station.location.latitude, station.location.longitude] : null);
+  const originAt = positionOf(state.originId ? stationById(state.originId) : null);
+  const destinationAt = positionOf(state.destinationId ? stationById(state.destinationId) : null);
+  // Andando hasta la salida (punteada fina) y en bici de la salida al destino (la línea de la #27); sin salida, del usuario al destino.
+  if (state.userLocation && originAt) L.polyline([center, originAt], { className: "route-walk-line", interactive: false }).addTo(map);
+  if (originAt && destinationAt) L.polyline([originAt, destinationAt], { className: "destination-line", interactive: false }).addTo(map);
+  else if (destinationAt && state.userLocation && !state.originId) L.polyline([center, destinationAt], { className: "destination-line", interactive: false }).addTo(map);
   const visibleStations = filterStations();
   markers = visibleStations.filter((station) => station.location?.latitude != null).map((station) => {
     const selected = state.selectedStationId === station.station_id;
-    const marker = L.marker([station.location.latitude, station.location.longitude], { icon: L.divIcon({ className: `station-marker bikes-${bikesTone(station)}${selected ? " selected" : ""}`, html: `<span class="marker-values"><span class="marker-value mechanical">M ${formatNumber(station.bikes?.mechanical)}</span><span class="marker-value electric">E ${formatNumber(station.bikes?.electric)}</span></span>`, iconSize: [48, 44], iconAnchor: [24, 22] }) }).addTo(map).bindPopup(stationTooltip(station), { className: "station-popup", closeButton: true, autoClose: true, closeOnClick: true, maxWidth: 260 });
+    const marker = L.marker([station.location.latitude, station.location.longitude], { icon: L.divIcon({ className: `station-marker bikes-${bikesTone(station)}${selected ? " selected" : ""}${state.destinationId === station.station_id ? " destination" : ""}${state.originId === station.station_id ? " origin" : ""}`, html: `<span class="marker-values"><span class="marker-value mechanical">M ${formatNumber(station.bikes?.mechanical)}</span><span class="marker-value electric">E ${formatNumber(station.bikes?.electric)}</span></span>`, iconSize: [48, 44], iconAnchor: [24, 22] }) }).addTo(map).bindPopup(stationTooltip(station), { className: "station-popup", closeButton: true, autoClose: true, closeOnClick: true, maxWidth: 260 });
     marker.stationId = station.station_id;
     marker.on("click", (event) => {
       L.DomEvent.stopPropagation(event);
@@ -302,6 +505,13 @@ function renderMapInstance() {
     },
   });
   new LocateControl({ position: "topright" }).addTo(map);
+  if (state.destinationFit && (originAt || destinationAt)) {
+    state.destinationFit = false;
+    // Solo al elegir salida o destino: como el mapa se recrea en cada refresco, encuadrar siempre pelearía con el usuario.
+    const points = [state.userLocation ? center : null, originAt, destinationAt].filter(Boolean);
+    if (points.length > 1) map.fitBounds(L.latLngBounds(points), { animate: false, padding: [60, 60], maxZoom: 17 });
+    else map.setView(points[0], Math.max(map.getZoom(), 16), { animate: false });
+  }
   setTimeout(() => map?.invalidateSize(), 50);
 }
 
@@ -353,8 +563,8 @@ function bindEvents() {
   }));
   document.querySelectorAll("[data-station]").forEach((card) => {
     const source = state.route === "saved" ? "saved" : "station_card";
-    card.addEventListener("click", () => selectStation(card.dataset.station, source));
-    card.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); selectStation(card.dataset.station, source); } });
+    card.addEventListener("click", (event) => { if (!event.target.closest("[data-destination], [data-origin]")) selectStation(card.dataset.station, source); });
+    card.addEventListener("keydown", (event) => { if (event.target.closest("button")) return; if (event.key === "Enter" || event.key === " ") { event.preventDefault(); selectStation(card.dataset.station, source); } });
   });
   document.querySelector("#history-station-search")?.addEventListener("input", (event) => {
     state.historyQuery = event.target.value;
@@ -400,6 +610,8 @@ function render() {
   document.title = routeTitles[state.route] ?? routeTitles.map;
   const content = state.route === "history" ? historyView() : state.route === "saved" ? savedView() : state.route === "more" ? moreView() : mapView();
   document.querySelector("#app").innerHTML = shell(content); bindEvents();
+  // En móvil el gráfico es más ancho que la pantalla: se abre en lo más reciente, que es lo que se busca.
+  document.querySelectorAll(".history-page .chart-scroll").forEach((node) => { node.scrollLeft = node.scrollWidth; });
   analytics.trackPageView(state.route);
   if (state.route === "map") renderMapInstance();
   if (state.route === "history" && state.stations.length) loadHistory();
