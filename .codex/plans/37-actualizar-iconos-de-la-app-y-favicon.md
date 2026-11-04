@@ -9,7 +9,7 @@
 
 ## Resumen verificable de la issue
 
-La issue solicita actualizar los iconos visibles de la aplicación y el favicon para alinearlos con la identidad visual de Aldea Pucela. Además, se ha decidido que la aplicación se presente como “BIKI Aldea Pucela” en lugar de “Movilidad”. Sus criterios piden que el favicon se muestre en la pestaña, que el icono de la aplicación cargue en los contextos soportados, que no queden referencias antiguas innecesarias y que se compruebe tanto el desarrollo como la build de producción.
+La issue solicita actualizar los iconos visibles de la aplicación y el favicon para alinearlos con la identidad visual de Aldea Pucela. La aplicación debe presentarse como “Movilidad BIKI”. Sus criterios piden que el favicon se muestre en la pestaña, que el icono de la aplicación cargue en los contextos soportados, que no queden referencias antiguas innecesarias y que se compruebe tanto el desarrollo como la build de producción.
 
 No hay comentarios, etiquetas, asignados ni recursos gráficos adjuntos en la issue.
 
@@ -37,7 +37,7 @@ Fuera de alcance por ahora:
 - La marca visible del encabezado usa `public/aldea-pucela.jpg` en `src/main.js`.
 - No se ha localizado un `manifest.webmanifest` ni una declaración `apple-touch-icon` en las referencias actuales.
 - La referencia visual aprobada es la identidad de [aldeapucela.org](https://aldeapucela.org/), cuyo logo se sirve actualmente desde `https://aldeapucela.org/img/logo-web.jpg`.
-- El nombre visible aprobado para la aplicación es “BIKI Aldea Pucela”.
+- El nombre visible aprobado para la aplicación es “Movilidad BIKI”.
 - Deben respetarse las licencias del repositorio y no incorporar material de terceros sin autorización.
 
 ## Propuesta técnica (NO EJECUTAR)
@@ -45,7 +45,7 @@ Fuera de alcance por ahora:
 1. Usar el mismo logo y recursos de identidad que `aldeapucela.org`, con autorización y atribución conforme a la página de logos y diseños del proyecto, y generar los recursos derivados con los tamaños y formatos adecuados para cada contexto.
 2. Inventariar las referencias en `index.html`, `public/` y el código de la interfaz para sustituir los iconos actuales.
 3. Actualizar el favicon, el icono visible del encabezado, `apple-touch-icon` y el manifest/PWA con las variantes dimensionadas que correspondan.
-4. Sustituir las referencias de marca “Movilidad” por “BIKI Aldea Pucela” en títulos, nombre accesible, navegación y metadatos donde correspondan, manteniendo “Movilidad” solo cuando describa el proyecto o contenido y no la marca de la aplicación.
+4. Usar “Movilidad BIKI” en títulos, nombre accesible, navegación y metadatos donde correspondan.
 5. Añadir pruebas que comprueben las referencias, tipos, disponibilidad de los recursos y nombre visible, y ejecutar la build de producción.
 6. Abrir un PR hacia `main` con `Closes #37` en el cuerpo para que la issue quede asociada automáticamente.
 
@@ -57,7 +57,7 @@ Fuera de alcance por ahora:
 | ¿Qué significa “iconos de la app”? | Solo favicon; favicon + encabezado; favicon + `apple-touch-icon` + PWA/manifest | Aplicar el recurso a todos esos contextos | Resuelta |
 | ¿Qué tamaños y variantes deben cubrirse? | Mantener un tamaño único; generar tamaños específicos por plataforma | Ajustar los tamaños a cada contexto y formato | Resuelta |
 | ¿Debe sustituirse `public/aldea-pucela.jpg` en el encabezado? | Sí; no; mantenerlo como imagen institucional independiente | Sí, el encabezado y el resto de iconos usarán el logo de Aldea Pucela | Resuelta |
-| ¿Qué nombre debe mostrar la aplicación? | Mantener “Movilidad”; usar “BIKI Aldea Pucela” | Usar “BIKI Aldea Pucela” en la marca de la aplicación y metadatos correspondientes | Resuelta |
+| ¿Qué nombre debe mostrar la aplicación? | Mantener “Movilidad”; usar “BIKI Aldea Pucela”; usar “Movilidad BIKI” | Usar “Movilidad BIKI” en la marca de la aplicación y metadatos correspondientes | Resuelta |
 | ¿Qué pruebas de navegador móvil se consideran suficientes? | Playwright en Chromium; comprobación de recursos y build; matriz adicional de navegadores | Comprobar referencias, disponibilidad, build y contextos de icono definidos | Resuelta |
 
 ## Pruebas y validación propuestas
@@ -74,7 +74,7 @@ Fuera de alcance por ahora:
 Riesgos:
 
 - La conversión del logo de referencia a SVG/PNG u otros formatos puede requerir una herramienta disponible en el entorno.
-- La sustitución global de “Movilidad” podría afectar textos descriptivos del proyecto; debe limitarse a la marca de la aplicación, títulos y metadatos confirmados.
+- La marca “Movilidad BIKI” debe mantenerse diferenciada de las menciones descriptivas a movilidad como concepto general.
 - Los favicons pueden quedar cacheados por el navegador; conviene cambiar nombres o documentar cómo validar la actualización.
 - Añadir capacidades de instalación móvil sin confirmación podría ampliar el alcance más allá de la issue.
 - Los formatos y recursos de terceros pueden tener requisitos de licencia o atribución.

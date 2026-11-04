@@ -1,6 +1,6 @@
 {
-  "name": "BIKI Aldea Pucela",
-  "short_name": "BIKI Aldea Pucela",
+  "name": "Movilidad BIKI",
+  "short_name": "Movilidad BIKI",
   "description": "Estado e histórico de las estaciones BIKI de Valladolid.",
   "start_url": "/",
   "display": "standalone",

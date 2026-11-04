@@ -15,15 +15,15 @@ const contrast = (a, b) => {
 
 test("el título del documento cambia con la ruta", async ({ page }) => {
   await page.goto("/");
-  await expect(page).toHaveTitle("BIKI Aldea Pucela · Valladolid");
+  await expect(page).toHaveTitle("Movilidad BIKI · Valladolid");
   await page.getByRole("link", { name: "Guardadas" }).click();
-  await expect(page).toHaveTitle("Guardadas · BIKI Aldea Pucela");
+  await expect(page).toHaveTitle("Guardadas · Movilidad BIKI");
   await page.getByRole("link", { name: "Histórico" }).click();
-  await expect(page).toHaveTitle("Histórico · BIKI Aldea Pucela");
+  await expect(page).toHaveTitle("Histórico · Movilidad BIKI");
   await page.getByRole("link", { name: "Más" }).click();
-  await expect(page).toHaveTitle("Más · BIKI Aldea Pucela");
+  await expect(page).toHaveTitle("Más · Movilidad BIKI");
   await page.getByRole("link", { name: "Mapa", exact: true }).click();
-  await expect(page).toHaveTitle("BIKI Aldea Pucela · Valladolid");
+  await expect(page).toHaveTitle("Movilidad BIKI · Valladolid");
 });
 
 test("declara un favicon y se sirve", async ({ page, request }) => {
@@ -44,7 +44,7 @@ test("declara y sirve el manifest y los iconos de instalación", async ({ page, 
   const manifestResponse = await request.get(new URL(manifestHref, page.url()).href);
   expect(manifestResponse.status()).toBe(200);
   const manifest = await manifestResponse.json();
-  expect(manifest.name).toBe("BIKI Aldea Pucela");
+  expect(manifest.name).toBe("Movilidad BIKI");
   for (const icon of manifest.icons) {
     const response = await request.get(new URL(icon.src, page.url()).href);
     expect(response.status(), icon.src).toBe(200);

@@ -134,7 +134,7 @@ export function createAnalytics({
     if (route === lastPageview || !init()) return false;
     lastPageview = route;
     push("setCustomUrl", route === "map" ? "/" : `/${route}`);
-    push("setDocumentTitle", ({ map: "Mapa", saved: "Guardadas", history: "Histórico", more: "Más" })[route] || "BIKI Aldea Pucela");
+    push("setDocumentTitle", ({ map: "Mapa", saved: "Guardadas", history: "Histórico", more: "Más" })[route] || "Movilidad BIKI");
     return push("trackPageView");
   };
 
