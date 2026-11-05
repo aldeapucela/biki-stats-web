@@ -123,6 +123,8 @@ function shell(content) {
 function routeButtons(station, pressed = false) {
   const id = esc(station.station_id);
   const isOrigin = state.originId === station.station_id; const isDestination = state.destinationId === station.station_id;
+  // Sin cifras fiables no se ofrece como salida ni destino (si ya lo era, se deja quitarla).
+  if (station.unreliable && !isOrigin && !isDestination) return "";
   return `<div class="route-buttons"><button type="button" class="origin-button" data-origin="${id}"${pressed ? ` aria-pressed="${isOrigin}"` : ""}>${isOrigin ? "Quitar salida" : "Recojo aquí"}</button><button type="button" class="destination-button" data-destination="${id}"${pressed ? ` aria-pressed="${isDestination}"` : ""}>${isDestination ? "Quitar destino" : "Voy a esta estación"}</button></div>`;
 }
 
@@ -135,7 +137,7 @@ function stationCard(station, compact = false) {
     <div class="occupancy-bar"><span class="bar-fill ${tone}" style="width:${Math.min(100, station.occupancy_percent || 0)}%"></span></div>
     <div class="station-metrics"><span><i class="bike mechanical"></i>${formatNumber(station.bikes?.mechanical)} mecánicas</span><span><i class="bike electric"></i>${formatNumber(station.bikes?.electric)} eléctricas</span><span><i class="dock"></i>${formatNumber(station.free_docks)} libres</span></div>
     ${routeButtons(station, true)}
-    ${compact ? "" : `<p class="freshness ${station.is_stale ? "stale" : ""}">${station.is_stale ? "Datos posiblemente obsoletos · " : "Actualizado "}${formatAge(station.data_age_seconds)}</p>`}
+    ${compact ? "" : `<p class="freshness ${station.is_stale || station.unreliable ? "stale" : ""}">${station.unreliable ? "Lectura no fiable (más bicis que capacidad) · " : station.is_stale ? "Datos posiblemente obsoletos · " : "Actualizado "}${formatAge(station.data_age_seconds)}</p>`}
   </article>`;
 }
 
@@ -193,7 +195,7 @@ function alternativesLine(kind, station, minutes) {
   const attribute = kind === "bike" ? "data-origin" : "data-destination";
   return `<p class="route-alt">Cerca con ${kind === "bike" ? "bicis" : "huecos"}: ${list.map(({ station: other, meters }) => `<button type="button" class="link-button" ${attribute}="${esc(other.station_id)}">${esc(other.name)}</button> (${formatDistance(meters)})`).join(" · ")}</p>`;
 }
-const freshnessLine = (station) => `<p class="freshness ${station.is_stale ? "stale" : ""}">${station.is_stale ? "Datos posiblemente obsoletos · " : "Actualizado "}${formatAge(station.data_age_seconds)}</p>`;
+const freshnessLine = (station) => `<p class="freshness ${station.is_stale || station.unreliable ? "stale" : ""}">${station.unreliable ? "Lectura no fiable (más bicis que capacidad) · " : station.is_stale ? "Datos posiblemente obsoletos · " : "Actualizado "}${formatAge(station.data_age_seconds)}</p>`;
 const missingLeg = (clearAttribute, label) => `<div class="route-leg missing"><p>La estación que elegiste ya no está disponible.</p><button type="button" class="secondary-button" ${clearAttribute}>${label}</button></div>`;
 
 function originLeg(station, plan) {

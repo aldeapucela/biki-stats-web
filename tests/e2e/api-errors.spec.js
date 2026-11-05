@@ -76,3 +76,22 @@ for (const mode of ["500", "red"]) {
     await expect(page.locator("[data-action=locate]")).not.toContainText("no disponible");
   });
 }
+
+test("una lectura imposible (más bicis que capacidad) sale sin cifras y en gris", async ({ page }) => {
+  // Lectura real de la estación temporal 104 del estadio Zorrilla (3-nov-2026): 396 + 396 bicis con capacidad 1.
+  const zorrilla = { ...fixtureStations[0], station_id: "104", name: "Estación Temporal Estadio José Zorrilla - 104", bikes: { mechanical: 396, electric: 396 }, free_docks: 99, capacity: 1, occupancy_percent: null };
+  const api = { stations: "ok", nearby: "ok" };
+  await mockApi(page, api);
+  await page.route(/\/api\/v1\/stations(\?.*)?$/, (route) => route.fulfill(success([...fixtureStations, zorrilla])));
+  await page.goto("/");
+  await expect(page.locator(".station-card")).toHaveCount(fixtureStations.length + 1);
+  const tarjeta = page.locator(".station-card", { hasText: "Zorrilla - 104" });
+  await expect(tarjeta).toContainText("Lectura no fiable");
+  await expect(tarjeta).not.toContainText("396");
+  await expect(tarjeta).not.toContainText("99");
+  await expect(tarjeta.getByRole("button", { name: /Recojo aquí|Voy a esta estación/ })).toHaveCount(0);
+  await expect(page.locator(".station-marker.bikes-unknown")).toHaveCount(1);
+  await expect(page.locator(".station-marker", { hasText: "396" })).toHaveCount(0);
+  // Una estación coherente no cambia.
+  await expect(page.locator(".station-card", { hasText: fixtureStations[0].name })).not.toContainText("Lectura no fiable");
+});

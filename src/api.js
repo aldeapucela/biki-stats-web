@@ -1,4 +1,5 @@
 import { fixtureHistory, fixtureStations, fixtureSummary } from "./fixtures.js";
+import { withoutImpossibleReadings } from "./reliability.js";
 
 const apiRoot = (import.meta.env.VITE_API_BASE_URL || "http://localhost:8000").replace(/\/$/, "");
 const apiPrefix = `${apiRoot}/api/v1`;
@@ -55,7 +56,7 @@ export const api = {
   async listStations(params = {}, signal) {
     if (useFixtures) return envelope(fixtureStations);
     const query = new URLSearchParams(Object.entries(params).filter(([, value]) => value !== undefined && value !== ""));
-    return request(`/stations?${query}`, signal);
+    return withoutImpossibleReadings(await request(`/stations?${query}`, signal));
   },
   async listAllStations(params = {}, signal) {
     if (useFixtures) return envelope(fixtureStations);
@@ -63,7 +64,7 @@ export const api = {
   },
   async nearby(lat, lon, signal) {
     if (useFixtures) return envelope(fixtureStations.map((item, index) => ({ ...item, distance_m: 320 + index * 180 })));
-    return request(`/stations/nearby?${new URLSearchParams({ lat, lon, radius_m: 10000, limit: 100 })}`, signal);
+    return withoutImpossibleReadings(await request(`/stations/nearby?${new URLSearchParams({ lat, lon, radius_m: 10000, limit: 100 })}`, signal));
   },
   async history(stationId, period, signal) {
     const range = dateRange(period);
